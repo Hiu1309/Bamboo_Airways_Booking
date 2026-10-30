@@ -254,10 +254,10 @@ main.booking-main { padding-top: 35px; padding-bottom: 80px; }
 .flight-detail { padding-left: 18px; border-left: 1px solid var(--line); font-size: 11px; }
 .flight-detail p { display: flex; gap: 5px; margin: 6px 0; }
 .flight-detail button { padding: 0; border: 0; border-bottom: 1px solid var(--green); color: var(--green); background: none; }
-.fare-tile { padding: 20px 10px; border: 0; color: white; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.fare-tile { padding: 28px 10px 18px; border: 0; color: white; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .fare-tile.economy { background: var(--green); }
 .fare-tile.business { background: #075783; }
-.fare-tile small { position: absolute; left: 10px; top: 0; transform: translateY(-50%); padding: 4px 6px; background: inherit; font-size: 10px; }
+.fare-tile small { position: absolute; left: 10px; top: 8px; padding: 4px 6px; background: inherit; font-size: 10px; line-height: 1.2; }
 .fare-tile span { font-size: 17px; font-weight: 800; }
 .fare-tile i, .fare-tile em { font-style: normal; }
 .fare-tile strong { font-size: 23px; line-height: 1; }

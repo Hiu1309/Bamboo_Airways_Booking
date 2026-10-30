@@ -15,6 +15,8 @@ type Page =
   | 'reviews'
 
 type SearchParams = { from: string; to: string; date: string; passengers: number }
+type SelectedFlight = ApiFlight & { selectedFare: ApiFlight['fares'][number] }
+type PassengerData = { title: string; firstName: string; lastName: string; identityNumber: string; dateOfBirth?: string; memberNumber?: string; contactEmail: string; contactPhone: string }
 type ApiFlight = {
   id: string
   flightNumber: string
@@ -95,8 +97,8 @@ function Button({ children, className = '', onClick, type = 'button', disabled =
   return <button type={type} className={`btn ${className}`} onClick={onClick} disabled={disabled}>{children}</button>
 }
 
-function Field({ label, value, placeholder, type = 'text', required, onChange, error, icon }: {
-  label?: string; value?: string; placeholder?: string; type?: string; required?: boolean
+function Field({ name, label, value, defaultValue, placeholder, type = 'text', required, onChange, error, icon }: {
+  name?: string; label?: string; value?: string; defaultValue?: string; placeholder?: string; type?: string; required?: boolean
   onChange?: (value: string) => void; error?: string; icon?: string
 }) {
   return (
@@ -104,15 +106,15 @@ function Field({ label, value, placeholder, type = 'text', required, onChange, e
       {label && <span>{label}{required && <b> *</b>}</span>}
       <span className="input-wrap">
         {icon && <Icon name={icon} size={17} />}
-        <input type={type} value={value} placeholder={placeholder} onChange={(e) => onChange?.(e.target.value)} />
+        <input name={name} type={type} value={value} defaultValue={defaultValue} placeholder={placeholder} required={required} onChange={(e) => onChange?.(e.target.value)} />
       </span>
       {error && <small>{error}</small>}
     </label>
   )
 }
 
-function SelectField({ label, children, required, value, onChange }: { label: string; children: ReactNode; required?: boolean; value?: string; onChange?: (value: string) => void }) {
-  return <label className="field"><span>{label}{required && <b> *</b>}</span><select value={value} onChange={(event) => onChange?.(event.target.value)}>{children}</select></label>
+function SelectField({ name, label, children, required, value, onChange }: { name?: string; label: string; children: ReactNode; required?: boolean; value?: string; onChange?: (value: string) => void }) {
+  return <label className="field"><span>{label}{required && <b> *</b>}</span><select name={name} required={required} value={value} onChange={(event) => onChange?.(event.target.value)}>{children}</select></label>
 }
 
 function DateField({ label, value, min, onChange, disabled = false }: { label: string; value: string; min?: string; onChange: (value: string) => void; disabled?: boolean }) {
@@ -200,6 +202,7 @@ function Footer() {
 
 function SearchCard({ go, onSearch }: { go: (p: Page) => void; onSearch: (params: SearchParams) => void }) {
   const [tab, setTab] = useState('Đặt Vé')
+  const [paymentType, setPaymentType] = useState('Bằng Tiền')
   const [trip, setTrip] = useState('Khứ hồi')
   const [from, setFrom] = useState('HAN')
   const [to, setTo] = useState('SGN')
@@ -217,7 +220,7 @@ function SearchCard({ go, onSearch }: { go: (p: Page) => void; onSearch: (params
       </div>
       {tab === 'Đặt Vé' ? (
         <div className="search-content">
-          <div className="pay-tabs"><button className="active">Bằng Tiền</button><button>Bằng Điểm</button><button>Bằng Tiền & Điểm</button></div>
+          <div className="pay-tabs">{['Bằng Tiền', 'Bằng Điểm', 'Bằng Tiền & Điểm'].map((option) => <button key={option} className={paymentType === option ? 'active' : ''} onClick={() => setPaymentType(option)}>{option}</button>)}</div>
           <div className="radio-row">{['Một chiều', 'Khứ hồi', 'Đa chặng'].map((x) => <label key={x}><input type="radio" checked={trip === x} onChange={() => setTrip(x)} /> {x}</label>)}</div>
           <div className="search-fields">
             <label className="airport"><span>TỪ</span><select value={from} onChange={(event) => setFrom(event.target.value)}><option value="HAN">Hà Nội (HAN)</option><option value="SGN">TP. Hồ Chí Minh (SGN)</option><option value="DAD">Đà Nẵng (DAD)</option><option value="CXR">Nha Trang (CXR)</option></select><b>{from}</b></label>
@@ -378,7 +381,7 @@ function Banner({ title, subtitle }: { title: string; subtitle?: string }) {
   return <div className="page-banner" style={{ backgroundImage: `linear-gradient(90deg,rgba(0,45,75,.55),rgba(19,144,151,.18)),url(${BAY})` }}><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div></div>
 }
 
-function Flights({ go, search, onSearch }: { go: (p: Page) => void; search: SearchParams; onSearch: (params: SearchParams) => void }) {
+function Flights({ go, search, onSearch, onSelectFlight }: { go: (p: Page) => void; search: SearchParams; onSearch: (params: SearchParams) => void; onSelectFlight: (flight: SelectedFlight) => void }) {
   const [flights, setFlights] = useState<ApiFlight[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -412,14 +415,14 @@ function Flights({ go, search, onSearch }: { go: (p: Page) => void; search: Sear
           {loading && <div className="notice"><span>Đang tìm chuyến bay...</span></div>}
           {error && <div className="notice"><b>Lỗi</b><span>{error}</span></div>}
           {!loading && !error && flights.length === 0 && <div className="notice"><b>Không có chuyến</b><span>Không tìm thấy chuyến bay phù hợp. Vui lòng đổi ngày hoặc hành trình.</span></div>}
-          {flights.map((flight) => <FlightCard key={flight.id} go={go} time={new Date(flight.departureAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} arrival={new Date(flight.arrivalAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} duration={`${Math.floor(flight.durationMinutes / 60)} giờ ${flight.durationMinutes % 60} phút`} aircraft={flight.aircraft.model} fares={flight.fares} />)}
+          {flights.map((flight) => <FlightCard key={flight.id} go={go} flight={flight} onSelectFlight={onSelectFlight} time={new Date(flight.departureAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} arrival={new Date(flight.arrivalAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} duration={`${Math.floor(flight.durationMinutes / 60)} giờ ${flight.durationMinutes % 60} phút`} aircraft={flight.aircraft.model} fares={flight.fares} />)}
         </div>
       </main>
     </>
   )
 }
 
-function FlightCard({ go, time, arrival, duration, aircraft, fares }: { go: (p: Page) => void; time: string; arrival: string; duration: string; aircraft: string; fares: ApiFlight['fares'] }) {
+function FlightCard({ go, flight, onSelectFlight, time, arrival, duration, aircraft, fares }: { go: (p: Page) => void; flight: ApiFlight; onSelectFlight: (flight: SelectedFlight) => void; time: string; arrival: string; duration: string; aircraft: string; fares: ApiFlight['fares'] }) {
   const economy = fares.find((fare) => fare.cabinClass === 'ECONOMY')
   const business = fares.find((fare) => fare.cabinClass === 'BUSINESS')
   return (
@@ -430,27 +433,33 @@ function FlightCard({ go, time, arrival, duration, aircraft, fares }: { go: (p: 
         <div className="time"><strong>{arrival}</strong><span>SGN</span><small>Nhà ga 3</small></div>
         <div className="flight-detail"><p><Icon name="clock" size={15} /> Thời gian bay: {duration}</p><p><Icon name="plane" size={15} /> {aircraft} được Bamboo Airways khai thác</p><button>Xem chi tiết hành trình</button></div>
       </div>
-      {economy && <button className="fare-tile economy" onClick={() => go('fare')}><small>Còn lại {economy.availableSeats} chỗ</small><span>{economy.fareName}</span><i>từ</i><strong>{money(economy.price)}</strong><b>VND</b><em>⌄</em></button>}
-      {business && <button className="fare-tile business" onClick={() => go('fare')}><small>Còn lại {business.availableSeats} chỗ</small><span>{business.fareName}</span><i>từ</i><strong>{money(business.price)}</strong><b>VND</b><em>⌄</em></button>}
+      {economy && <button className="fare-tile economy" onClick={() => { onSelectFlight({ ...flight, selectedFare: economy }); go('fare') }}><small>Còn lại {economy.availableSeats} chỗ</small><span>{economy.fareName}</span><i>từ</i><strong>{money(economy.price)}</strong><b>VND</b><em>⌄</em></button>}
+      {business && <button className="fare-tile business" onClick={() => { onSelectFlight({ ...flight, selectedFare: business }); go('fare') }}><small>Còn lại {business.availableSeats} chỗ</small><span>{business.fareName}</span><i>từ</i><strong>{money(business.price)}</strong><b>VND</b><em>⌄</em></button>}
     </article>
   )
 }
 
 const benefits = ['Hành lý xách tay: 7kg', '01 kiện hành lý ký gửi 20kg', 'Hoàn/huỷ vé trước giờ khởi hành', 'Thay đổi miễn phí', 'Hệ số cộng điểm Bamboo Club: 1.00', 'Chọn ghế ngồi miễn phí', 'Đổi chuyến bay sớm miễn phí']
 
-function Fare({ go }: { go: (p: Page) => void }) {
-  return <><BookingBar go={go} /><main className="booking-main narrow"><div className="mini-flight"><b>07:30 HAN</b><span>Bay thẳng — 2 giờ 10 phút</span><b>09:40 SGN</b></div><h2 className="booking-title">Chọn hạng vé</h2><p className="center-text">Tiện ích với mỗi hành khách.</p><article className="fare-detail"><header><strong>500.000 <small>VND</small></strong><span>Economy Flex</span><em>Còn 60 chỗ ở mức giá này</em></header><ul>{benefits.map((x) => <li key={x}><Icon name="check" size={17} />{x}</li>)}</ul><button className="detail-link">Xem chi tiết</button></article><p className="selected-note"><Icon name="check" size={17} /> Bạn đã chọn Economy Flex.</p><Button onClick={() => go('journey')}>Xác nhận và tiếp tục</Button></main></>
+function Fare({ go, flight }: { go: (p: Page) => void; flight: SelectedFlight | null }) {
+  if (!flight) return <main className="booking-main narrow"><div className="notice"><b>Thiếu chuyến bay</b><span>Vui lòng quay lại tìm kiếm và chọn chuyến bay.</span></div><Button onClick={() => go('home')}>Về trang chủ</Button></main>
+  const fare = flight.selectedFare
+  const duration = `${Math.floor(flight.durationMinutes / 60)} giờ ${flight.durationMinutes % 60} phút`
+  return <><BookingBar go={go} total={`${money(fare.price)} VND`} date={flight.departureAt.slice(0, 10)} /><main className="booking-main narrow"><div className="mini-flight"><b>{new Date(flight.departureAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} {flight.departureAirport.code}</b><span>Bay thẳng — {duration}</span><b>{new Date(flight.arrivalAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} {flight.arrivalAirport.code}</b></div><h2 className="booking-title">Xác nhận hạng vé</h2><p className="center-text">Tiện ích với mỗi hành khách.</p><article className="fare-detail"><header><strong>{money(fare.price)} <small>VND</small></strong><span>{fare.fareName}</span><em>Còn {fare.availableSeats} chỗ ở mức giá này</em></header><ul>{benefits.map((x) => <li key={x}><Icon name="check" size={17} />{x}</li>)}</ul><button className="detail-link">Xem chi tiết</button></article><p className="selected-note"><Icon name="check" size={17} /> Bạn đã chọn {fare.fareName}.</p><Button onClick={() => go('journey')}>Xác nhận và tiếp tục</Button></main></>
 }
 
-function Journey({ go }: { go: (p: Page) => void }) {
-  return <><BookingBar go={go} /><Banner title="Hành trình của Quý khách" subtitle="Kiểm tra thông tin trước khi tiếp tục" /><main className="booking-main narrow"><article className="journey-card"><div className="journey-head"><span>CHỦ NHẬT, 05 THÁNG 10</span><b>Hà Nội → TP. Hồ Chí Minh</b></div><div className="journey-flight"><div><b>07:30</b><span>HAN</span></div><i><Icon name="plane" /><small>Bay thẳng · 2 giờ 10 phút</small></i><div><b>09:40</b><span>SGN</span></div></div><div className="journey-fare"><span>Economy Flex · 1 người lớn</span><b>500.000 VND</b></div></article><article className="total-card"><span>Tổng giá</span><strong>653.000 VND</strong><small>Đã bao gồm thuế và phí</small></article><div className="policy-links"><button>Chính sách hành lý chi tiết</button><button>Điều kiện giá vé</button><button>Quy định hành lý nguy hiểm</button></div><Button className="full" onClick={() => go('passengers')}>Điền thông tin hành khách</Button></main></>
+function Journey({ go, flight }: { go: (p: Page) => void; flight: SelectedFlight | null }) {
+  if (!flight) return <main className="booking-main narrow"><div className="notice"><b>Thiếu chuyến bay</b><span>Vui lòng chọn chuyến bay trước.</span></div><Button onClick={() => go('home')}>Về trang chủ</Button></main>
+  const fare = flight.selectedFare
+  const tax = Math.round(fare.price * 0.306)
+  return <><BookingBar go={go} total={`${money(fare.price + tax)} VND`} date={flight.departureAt.slice(0, 10)} /><Banner title="Hành trình của Quý khách" subtitle="Kiểm tra thông tin trước khi tiếp tục" /><main className="booking-main narrow"><article className="journey-card"><div className="journey-head"><span>{formatDate(flight.departureAt.slice(0, 10), { weekday: 'long', day: '2-digit', month: 'long' })}</span><b>{flight.departureAirport.city} → {flight.arrivalAirport.city}</b></div><div className="journey-flight"><div><b>{new Date(flight.departureAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</b><span>{flight.departureAirport.code}</span></div><i><Icon name="plane" /><small>Bay thẳng · {Math.floor(flight.durationMinutes / 60)} giờ {flight.durationMinutes % 60} phút</small></i><div><b>{new Date(flight.arrivalAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</b><span>{flight.arrivalAirport.code}</span></div></div><div className="journey-fare"><span>{fare.fareName} · {flight.selectedFare.cabinClass === 'BUSINESS' ? 'Thương gia' : '1 người lớn'}</span><b>{money(fare.price)} VND</b></div></article><article className="total-card"><span>Tổng giá dự kiến</span><strong>{money(fare.price + tax)} VND</strong><small>Đã bao gồm thuế và phí</small></article><div className="policy-links"><button>Chính sách hành lý chi tiết</button><button>Điều kiện giá vé</button><button>Quy định hành lý nguy hiểm</button></div><Button className="full" onClick={() => go('passengers')}>Điền thông tin hành khách</Button></main></>
 }
 
-function Passengers({ go, loggedIn }: { go: (p: Page) => void; loggedIn: boolean }) {
+function Passengers({ go, loggedIn, onPassenger }: { go: (p: Page) => void; loggedIn: boolean; onPassenger: (data: PassengerData) => void }) {
   const [consent, setConsent] = useState(false)
   const [submitted, setSubmitted] = useState(false)
-  const next = () => { setSubmitted(true); if (consent) go('seats') }
-  return <><BookingBar go={go} total="653.000 VND" /><Banner title="Nhập thông tin khách hàng" subtitle="Vui lòng nhập đúng thông tin trên giấy tờ tùy thân" /><main className="booking-main form-page"><FormCard title="Hành khách 1 · Người lớn" subtitle="Thông tin cá nhân"><div className="form-grid four"><SelectField label="Danh xưng" required><option>Ông</option><option>Bà</option><option>Khác</option></SelectField><Field label="Tên đệm và tên" value={loggedIn ? 'MINH ANH' : undefined} placeholder="MINH ANH" required /><Field label="Họ" value={loggedIn ? 'NGUYỄN' : undefined} placeholder="NGUYỄN" required /><Field label="Ngày sinh" placeholder="dd/mm/yyyy" required /></div></FormCard><FormCard title="Chương trình Khách hàng thân thiết"><div className="form-grid two"><SelectField label="Chương trình"><option>Bamboo Club</option><option>Chương trình khác</option></SelectField><Field label="Số thẻ hội viên" value={loggedIn ? 'BAM1234567' : undefined} placeholder="Nhập số thẻ" /></div></FormCard><FormCard title="Thông tin liên lạc" subtitle="Vé điện tử sẽ được gửi đến thông tin dưới đây"><div className="form-grid two"><Field label="Email" type="email" value={loggedIn ? 'minhanh@example.com' : undefined} placeholder="vidu@email.com" required /><button className="add-link">+ Thêm địa chỉ email</button><SelectField label="Loại điện thoại"><option>Di động</option><option>Nhà riêng</option></SelectField><SelectField label="Mã quốc gia"><option>Việt Nam (+84)</option></SelectField><Field label="Số điện thoại" value={loggedIn ? '0901234567' : undefined} placeholder="090 123 4567" required /></div><label className="toggle-label"><input type="checkbox" /><i /> Thêm thông tin liên lạc khẩn cấp</label></FormCard><label className={`consent ${submitted && !consent ? 'invalid' : ''}`}><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /><span>Tôi đã đọc và đồng ý với <u>Chính sách bảo vệ dữ liệu cá nhân</u> của Bamboo Airways.</span></label>{submitted && !consent && <p className="error-text">Quý khách vui lòng đồng ý với chính sách để tiếp tục.</p>}<Button onClick={next}>Xác nhận</Button></main></>
+  const next = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setSubmitted(true); if (!consent) return; const form = new FormData(event.currentTarget); onPassenger({ title: String(form.get('title') || 'Ông'), firstName: String(form.get('firstName') || ''), lastName: String(form.get('lastName') || ''), identityNumber: String(form.get('identityNumber') || ''), dateOfBirth: String(form.get('dateOfBirth') || '') || undefined, memberNumber: String(form.get('memberNumber') || '') || undefined, contactEmail: String(form.get('contactEmail') || ''), contactPhone: String(form.get('contactPhone') || '') }); go('seats') }
+  return <><BookingBar go={go} total="Đang tính" /><Banner title="Nhập thông tin khách hàng" subtitle="Vui lòng nhập đúng thông tin trên giấy tờ tùy thân" /><form className="booking-main form-page" onSubmit={next}><FormCard title="Hành khách 1 · Người lớn" subtitle="Thông tin cá nhân"><div className="form-grid four"><SelectField name="title" label="Danh xưng" required value="Ông"><option>Ông</option><option>Bà</option><option>Khác</option></SelectField><Field name="firstName" label="Tên đệm và tên" defaultValue={loggedIn ? 'MINH ANH' : ''} placeholder="MINH ANH" required /><Field name="lastName" label="Họ" defaultValue={loggedIn ? 'NGUYỄN' : ''} placeholder="NGUYỄN" required /><Field name="dateOfBirth" label="Ngày sinh" type="date" defaultValue="1998-01-01" required /></div><Field name="identityNumber" label="Số giấy tờ" defaultValue="" placeholder="Nhập số CCCD/Hộ chiếu" required /></FormCard><FormCard title="Chương trình Khách hàng thân thiết"><div className="form-grid two"><SelectField label="Chương trình"><option>Bamboo Club</option><option>Chương trình khác</option></SelectField><Field name="memberNumber" label="Số thẻ hội viên" defaultValue={loggedIn ? 'BAM1234567' : ''} placeholder="Nhập số thẻ" /></div></FormCard><FormCard title="Thông tin liên lạc" subtitle="Vé điện tử sẽ được gửi đến thông tin dưới đây"><div className="form-grid two"><Field name="contactEmail" label="Email" type="email" defaultValue={loggedIn ? 'minhanh@example.com' : ''} placeholder="vidu@email.com" required /><Field name="contactPhone" label="Số điện thoại" defaultValue={loggedIn ? '0901234567' : ''} placeholder="090 123 4567" required /></div></FormCard><label className={`consent ${submitted && !consent ? 'invalid' : ''}`}><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /><span>Tôi đã đọc và đồng ý với <u>Chính sách bảo vệ dữ liệu cá nhân</u> của Bamboo Airways.</span></label>{submitted && !consent && <p className="error-text">Quý khách vui lòng đồng ý với chính sách để tiếp tục.</p>}<Button type="submit">Xác nhận</Button></form></>
 }
 
 function FormCard({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
@@ -460,15 +469,16 @@ function FormCard({ title, subtitle, children }: { title: string; subtitle?: str
 const seatRows = Array.from({ length: 16 }, (_, i) => i + 1)
 const seatCols = ['A', 'B', 'C', 'D', 'G', 'H', 'K']
 
-function Seats({ go }: { go: (p: Page) => void }) {
+function Seats({ go, flight, onSelectSeat }: { go: (p: Page) => void; flight: SelectedFlight | null; onSelectSeat: (code: string) => void }) {
   const [legend, setLegend] = useState(true)
-  const [selected, setSelected] = useState('8G')
+  const [selected, setSelected] = useState('')
+  const [blocked, setBlocked] = useState<string[]>([])
   const [seconds, setSeconds] = useState(1200)
   useEffect(() => { const t = setInterval(() => setSeconds((s) => Math.max(s - 1, 0)), 1000); return () => clearInterval(t) }, [])
+  useEffect(() => { if (flight) api<Array<{ code: string; status: string }>>(`/api/flights/${flight.id}/seats`).then((seats) => setBlocked(seats.filter((seat) => seat.status !== 'AVAILABLE').map((seat) => seat.code))).catch(() => undefined) }, [flight])
   const timer = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
-  const blocked = ['1A', '1B', '2K', '4D', '6A', '8H', '10C', '13G', '15K']
   const preferred = ['2A', '2B', '2C', '2D', '2G', '2H']
-  return <><BookingBar go={go} total="653.000 VND" /><Banner title="Chọn chỗ ngồi" subtitle="Hà Nội → TP. Hồ Chí Minh" /><main className="booking-main seat-page"><div className="seat-toolbar"><div><h2>Chọn chỗ ngồi</h2><p>Economy · Hành khách 1: NGUYỄN MINH ANH</p></div><div className="hold"><Icon name="clock" /><span>Giữ chỗ trong</span><b>{timer}</b></div><Button className="outline" onClick={() => setLegend(true)}>Chú giải</Button></div><div className="plane"><div className="plane-nose"><Icon name="plane" size={30} /><span>Đầu máy bay</span></div><div className="column-labels">{seatCols.map((c, i) => <span key={c} className={i === 4 ? 'aisle-after' : ''}>{c}</span>)}</div>{seatRows.map((row) => <div className={`seat-row ${row === 7 ? 'exit-row' : ''}`} key={row}>{seatCols.map((col, i) => { const code = `${row}${col}`; const state = blocked.includes(code) ? 'blocked' : selected === code ? 'chosen' : preferred.includes(code) ? 'preferred' : row === 7 ? 'exit-seat' : ''; return <button key={code} className={`seat ${state} ${i === 4 ? 'aisle-after' : ''}`} disabled={state === 'blocked'} onClick={() => setSelected(code)}>{code}</button>})}{row === 7 && <span className="exit-label">LỐI THOÁT HIỂM</span>}</div>)}<div className="plane-tail"><span>WC</span><b>Đuôi máy bay</b><span>WC</span></div></div><div className="seat-summary"><span>Ghế đã chọn: <b>{selected}</b></span><strong>Phí chọn ghế: 0 VND</strong><Button onClick={() => go('payment')}>Tiếp tục thanh toán</Button></div></main>{legend && <Legend onClose={() => setLegend(false)} />}</>
+  return <><BookingBar go={go} total="Đang tính" /><Banner title="Chọn chỗ ngồi" subtitle={flight ? `${flight.departureAirport.city} → ${flight.arrivalAirport.city}` : ''} /><main className="booking-main seat-page"><div className="seat-toolbar"><div><h2>Chọn chỗ ngồi</h2><p>{flight?.selectedFare.fareName || 'Hạng vé'} · Hành khách 1</p></div><div className="hold"><Icon name="clock" /><span>Giữ chỗ trong</span><b>{timer}</b></div><Button className="outline" onClick={() => setLegend(true)}>Chú giải</Button></div><div className="plane"><div className="plane-nose"><Icon name="plane" size={30} /><span>Đầu máy bay</span></div><div className="column-labels">{seatCols.map((c, i) => <span key={c} className={i === 4 ? 'aisle-after' : ''}>{c}</span>)}</div>{seatRows.map((row) => <div className={`seat-row ${row === 7 ? 'exit-row' : ''}`} key={row}>{seatCols.map((col, i) => { const code = `${row}${col}`; const state = blocked.includes(code) ? 'blocked' : selected === code ? 'chosen' : preferred.includes(code) ? 'preferred' : row === 7 ? 'exit-seat' : ''; return <button key={code} className={`seat ${state} ${i === 4 ? 'aisle-after' : ''}`} disabled={state === 'blocked'} onClick={() => { setSelected(code); onSelectSeat(code) }}>{code}</button>})}{row === 7 && <span className="exit-label">LỐI THOÁT HIỂM</span>}</div>)}<div className="plane-tail"><span>WC</span><b>Đuôi máy bay</b><span>WC</span></div></div><div className="seat-summary"><span>Ghế đã chọn: <b>{selected || 'Chưa chọn'}</b></span><strong>Phí chọn ghế: 0 VND</strong><Button disabled={!selected} onClick={() => go('payment')}>Tiếp tục thanh toán</Button></div></main>{legend && <Legend onClose={() => setLegend(false)} />}</>
 }
 
 function Legend({ onClose }: { onClose: () => void }) {
@@ -485,13 +495,27 @@ const paymentMethods = [
   ['clock', 'Trả sau', 'Đặt chỗ ngay, thanh toán sau dễ dàng'],
 ]
 
-function Payment({ go }: { go: (p: Page) => void }) {
+function Payment({ go, flight, passenger, seatCode, onBooked }: { go: (p: Page) => void; flight: SelectedFlight | null; passenger: PassengerData | null; seatCode: string; onBooked: (code: string) => void }) {
   const [open, setOpen] = useState(2)
-  return <><BookingBar go={go} total="653.000 VND" /><Banner title="Thanh toán" subtitle="Hoàn tất đặt chỗ của Quý khách" /><main className="booking-main payment-page"><details className="price-details" open><summary><span>Tổng giá</span><b>653.000 VND</b></summary><div><span>Giá vé</span><b>500.000 VND</b><span>Thuế và phí</span><b>153.000 VND</b></div></details><button className="promo-link">Bạn có muốn thêm mã khuyến mãi không?</button><section className="payment-card"><h2>Chọn phương thức thanh toán của Quý khách</h2><button className="voucher-link">Bạn có muốn sử dụng voucher không?</button>{paymentMethods.map(([icon, title, note], i) => <div className={`pay-method ${open === i ? 'open' : ''}`} key={title}><button onClick={() => setOpen(open === i ? -1 : i)}><Icon name={icon} /><span><b>{title}</b><small>{note}</small></span><em>⌄</em></button>{open === i && <div className="pay-content">{i === 2 ? <><div className="vnpay-mark">VNPAY</div><p>Quý khách sẽ được chuyển đến cổng thanh toán VNPAY để quét mã QR.</p><label className="consent"><input type="checkbox" defaultChecked /><span>Tôi đồng ý với điều khoản thanh toán.</span></label><Button onClick={() => go('success')}>Thanh toán 653.000 VND</Button></> : <><p>Phương thức thanh toán này đang sẵn sàng cho đặt chỗ của Quý khách.</p><Button onClick={() => go('success')}>Tiếp tục thanh toán</Button></>}</div>}</div>)}</section><Button className="outline" onClick={() => go('seats')}>Quay lại</Button></main></>
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const pay = async (method: string) => {
+    if (!flight || !passenger) { setError('Vui lòng hoàn tất thông tin hành khách trước khi thanh toán.'); return }
+    setBusy(true); setError('')
+    try {
+      const booking = await api<{ id: string; bookingCode: string; total: number }>('/api/bookings', { method: 'POST', body: JSON.stringify({ flightId: flight.id, cabinClass: flight.selectedFare.cabinClass, fareName: flight.selectedFare.fareName, contactEmail: passenger.contactEmail, contactPhone: passenger.contactPhone, passenger: { title: passenger.title, firstName: passenger.firstName, lastName: passenger.lastName, identityNumber: passenger.identityNumber, dateOfBirth: passenger.dateOfBirth, memberNumber: passenger.memberNumber }, seatCode }) })
+      await api(`/api/bookings/${booking.bookingCode}/payments`, { method: 'POST', body: JSON.stringify({ method }) })
+      onBooked(booking.bookingCode)
+      go('success')
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Không thể hoàn tất thanh toán.') } finally { setBusy(false) }
+  }
+  const price = flight ? flight.selectedFare.price : 0
+  const tax = Math.round(price * 0.306)
+  return <><BookingBar go={go} total={`${money(price + tax)} VND`} /><Banner title="Thanh toán" subtitle="Hoàn tất đặt chỗ của Quý khách" /><main className="booking-main payment-page"><details className="price-details" open><summary><span>Tổng giá</span><b>{money(price + tax)} VND</b></summary><div><span>Giá vé</span><b>{money(price)} VND</b><span>Thuế và phí</span><b>{money(tax)} VND</b></div></details>{error && <p className="error-text">{error}</p>}<section className="payment-card"><h2>Chọn phương thức thanh toán của Quý khách</h2>{paymentMethods.map(([icon, title, note], i) => <div className={`pay-method ${open === i ? 'open' : ''}`} key={title}><button onClick={() => setOpen(open === i ? -1 : i)}><Icon name={icon} /><span><b>{title}</b><small>{note}</small></span><em>⌄</em></button>{open === i && <div className="pay-content"><p>Phương thức thanh toán này đang sẵn sàng cho đặt chỗ của Quý khách.</p><Button disabled={busy} onClick={() => pay(['CARD', 'VIETQR', 'VNPAY', 'MOMO', 'ATM', 'PAY_LATER'][i])}>{busy ? 'Đang xử lý...' : `Thanh toán ${money(price + tax)} VND`}</Button></div>}</div>)}</section><Button className="outline" onClick={() => go('seats')}>Quay lại</Button></main></>
 }
 
-function Success({ go }: { go: (p: Page) => void }) {
-  return <main className="success-page"><div className="success-icon"><Icon name="check" size={44} /></div><span>THANH TOÁN THÀNH CÔNG</span><h1>Chuyến bay của Quý khách<br />đã được xác nhận</h1><p>Mã đặt chỗ</p><strong>Q7BAM9</strong><div className="ticket"><div><small>HÀNH TRÌNH</small><b>HAN <Icon name="plane" /> SGN</b><span>07:30 · Chủ nhật, 05/10/2025</span></div><div><small>HÀNH KHÁCH</small><b>NGUYỄN MINH ANH</b><span>Ghế 8G · Economy Flex</span></div></div><p>Vé điện tử đã được gửi tới email của Quý khách. Vui lòng kiểm tra cả thư mục rác.</p><Button onClick={() => go('home')}>Về trang chủ</Button></main>
+function Success({ go, bookingCode, flight, passenger, seatCode }: { go: (p: Page) => void; bookingCode: string; flight: SelectedFlight | null; passenger: PassengerData | null; seatCode: string }) {
+  return <main className="success-page"><div className="success-icon"><Icon name="check" size={44} /></div><span>THANH TOÁN THÀNH CÔNG</span><h1>Chuyến bay của Quý khách<br />đã được xác nhận</h1><p>Mã đặt chỗ</p><strong>{bookingCode || 'Đang cập nhật'}</strong><div className="ticket"><div><small>HÀNH TRÌNH</small><b>{flight?.departureAirport.code || 'HAN'} <Icon name="plane" /> {flight?.arrivalAirport.code || 'SGN'}</b><span>{flight ? `${new Date(flight.departureAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} · ${formatDate(flight.departureAt.slice(0, 10))}` : ''}</span></div><div><small>HÀNH KHÁCH</small><b>{passenger ? `${passenger.lastName} ${passenger.firstName}` : 'Hành khách'}</b><span>Ghế {seatCode} · {flight?.selectedFare.fareName || ''}</span></div></div><p>Vé điện tử đã được gửi tới email của Quý khách.</p><Button onClick={() => go('home')}>Về trang chủ</Button></main>
 }
 
 function History() {
@@ -530,6 +554,10 @@ export default function App() {
   const [loggedIn, setLoggedIn] = useState(false)
   const [user, setUser] = useState<SessionUser | null>(null)
   const [search, setSearch] = useState<SearchParams>({ from: 'HAN', to: 'SGN', date: todayInput(), passengers: 1 })
+  const [selectedFlight, setSelectedFlight] = useState<SelectedFlight | null>(null)
+  const [passenger, setPassenger] = useState<PassengerData | null>(null)
+  const [seatCode, setSeatCode] = useState('')
+  const [bookingCode, setBookingCode] = useState('')
   useEffect(() => {
     setLoggedIn(Boolean(localStorage.getItem('bamboo.accessToken')))
   }, [])
@@ -543,13 +571,13 @@ export default function App() {
       {page === 'home' && <Home go={go} onSearch={setSearch} />}
       {page === 'login' && <AuthPage type="login" go={go} onLogin={login} />}
       {page === 'register' && <AuthPage type="register" go={go} onLogin={login} />}
-      {page === 'flights' && <Flights go={go} search={search} onSearch={setSearch} />}
-      {page === 'fare' && <Fare go={go} />}
-      {page === 'journey' && <Journey go={go} />}
-      {page === 'passengers' && <Passengers go={go} loggedIn={loggedIn} />}
-      {page === 'seats' && <Seats go={go} />}
-      {page === 'payment' && <Payment go={go} />}
-      {page === 'success' && <Success go={go} />}
+      {page === 'flights' && <Flights go={go} search={search} onSearch={setSearch} onSelectFlight={setSelectedFlight} />}
+      {page === 'fare' && <Fare go={go} flight={selectedFlight} />}
+      {page === 'journey' && <Journey go={go} flight={selectedFlight} />}
+      {page === 'passengers' && <Passengers go={go} loggedIn={loggedIn} onPassenger={setPassenger} />}
+      {page === 'seats' && <Seats go={go} flight={selectedFlight} onSelectSeat={setSeatCode} />}
+      {page === 'payment' && <Payment go={go} flight={selectedFlight} passenger={passenger} seatCode={seatCode} onBooked={setBookingCode} />}
+      {page === 'success' && <Success go={go} bookingCode={bookingCode} flight={selectedFlight} passenger={passenger} seatCode={seatCode} />}
       {page === 'history' && (loggedIn ? <History /> : <AuthPage type="login" go={go} onLogin={login} />)}
       {page === 'reviews' && <Reviews loggedIn={loggedIn} go={go} />}
     </div>
