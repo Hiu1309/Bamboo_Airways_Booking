@@ -1,0 +1,219 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum FlightStatus {
+  SCHEDULED
+  BOARDING
+  DEPARTED
+  ARRIVED
+  CANCELLED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id              String           @id @default(cuid())
+  username        String           @unique
+  email           String           @unique
+  passwordHash    String
+  fullName        String
+  identityNumber  String?          @unique
+  phone           String?
+  dateOfBirth     DateTime?
+  gender          String?
+  role            UserRole         @default(CUSTOMER)
+  memberNumber    String?          @unique
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  bookings        Booking[]
+  reviews         Review[]
+  refreshTokens   RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  loyaltyEntries  LoyaltyEntry[]
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+}
+
+model Airport {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  city          String
+  country       String   @default("Vietnam")
+  departureFrom Flight[] @relation("DepartureAirport")
+  arrivalTo     Flight[] @relation("ArrivalAirport")
+}
+
+model Aircraft {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  model       String
+  seatLayout  String   @default("A,B,C,D,G,H,K")
+  seatRows    Int      @default(16)
+  flights     Flight[]
+}
+
+model Flight {
+  id                 String       @id @default(cuid())
+  flightNumber       String       @unique
+  departureAirportId String
+  arrivalAirportId   String
+  aircraftId         String
+  departureAt        DateTime
+  arrivalAt          DateTime
+  basePrice          Int
+  businessPrice      Int
+  status             FlightStatus @default(SCHEDULED)
+  departureAirport   Airport      @relation("DepartureAirport", fields: [departureAirportId], references: [id])
+  arrivalAirport     Airport      @relation("ArrivalAirport", fields: [arrivalAirportId], references: [id])
+  aircraft           Aircraft     @relation(fields: [aircraftId], references: [id])
+  fares              Fare[]
+  bookings           Booking[]
+  seats              Seat[]
+  @@index([departureAirportId, arrivalAirportId, departureAt])
+}
+
+model Fare {
+  id             String  @id @default(cuid())
+  flightId       String
+  cabinClass     String
+  fareName       String
+  price          Int
+  baggageKg      Int     @default(7)
+  refundable     Boolean @default(false)
+  changeable     Boolean @default(false)
+  availableSeats Int
+  flight         Flight  @relation(fields: [flightId], references: [id], onDelete: Cascade)
+  @@unique([flightId, cabinClass, fareName])
+}
+
+model Seat {
+  id        String   @id @default(cuid())
+  flightId  String
+  code      String
+  cabinClass String
+  status    String   @default("AVAILABLE")
+  price     Int      @default(0)
+  flight    Flight   @relation(fields: [flightId], references: [id], onDelete: Cascade)
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+  bookingId String?
+  @@unique([flightId, code])
+  @@index([flightId, status])
+}
+
+model Booking {
+  id             String        @id @default(cuid())
+  bookingCode    String        @unique
+  userId         String?
+  flightId       String
+  status         BookingStatus @default(PENDING)
+  cabinClass     String
+  fareName       String
+  contactEmail   String
+  contactPhone   String
+  subtotal       Int
+  tax            Int
+  seatFee        Int           @default(0)
+  total          Int
+  expiresAt      DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  flight         Flight        @relation(fields: [flightId], references: [id])
+  passengers     Passenger[]
+  seats          Seat[]
+  payments       Payment[]
+  @@index([userId, createdAt])
+  @@index([flightId, createdAt])
+}
+
+model Passenger {
+  id             String  @id @default(cuid())
+  bookingId      String
+  title          String
+  firstName      String
+  lastName       String
+  dateOfBirth    DateTime?
+  identityNumber String
+  memberNumber   String?
+  booking        Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  bookingId   String
+  method      String
+  amount      Int
+  status      PaymentStatus @default(PENDING)
+  providerRef String?
+  paidAt      DateTime?
+  createdAt   DateTime      @default(now())
+  booking     Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  @@index([bookingId, status])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  rating    Int
+  comment   String
+  approved  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([approved, createdAt])
+}
+
+model LoyaltyEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  transactionNo String @unique
+  description String
+  type        String
+  points      Int
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+}

@@ -14,6 +14,51 @@ type Page =
   | 'history'
   | 'reviews'
 
+type SearchParams = { from: string; to: string; date: string; passengers: number }
+type ApiFlight = {
+  id: string
+  flightNumber: string
+  departureAt: string
+  arrivalAt: string
+  departureAirport: { code: string; name: string; city: string }
+  arrivalAirport: { code: string; name: string; city: string }
+  aircraft: { model: string }
+  fares: Array<{ cabinClass: string; fareName: string; price: number; availableSeats: number }>
+  durationMinutes: number
+}
+type SessionUser = { id: string; username: string; email: string; fullName: string; role: string; memberNumber?: string | null }
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+const currentYear = new Date().getFullYear()
+const toDateInput = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+const todayInput = () => toDateInput(new Date())
+const addDays = (input: string, amount: number) => {
+  const date = new Date(`${input}T12:00:00`)
+  date.setDate(date.getDate() + amount)
+  return toDateInput(date)
+}
+const formatDate = (input: string, options: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', year: 'numeric' }) =>
+  new Intl.DateTimeFormat('vi-VN', options).format(new Date(`${input}T12:00:00`))
+const money = (value: number) => new Intl.NumberFormat('vi-VN').format(value)
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = localStorage.getItem('bamboo.accessToken')
+  const headers = new Headers(init?.headers)
+  if (init?.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers,
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(data.message || 'Không thể kết nối máy chủ.')
+  return data as T
+}
+
 const HERO =
   'https://images.unsplash.com/photo-1730545478278-822e7e3a853d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1600'
 const COAST =
@@ -35,6 +80,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
     card: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /></>,
     star: <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z" />,
     close: <path d="m6 6 12 12M18 6 6 18" />,
+    home: <><path d="m3 11 9-8 9 8" /><path d="M5 10v10h14V10" /><path d="M9 20v-6h6v6" /></>,
   }
   return (
     <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -65,8 +111,19 @@ function Field({ label, value, placeholder, type = 'text', required, onChange, e
   )
 }
 
-function SelectField({ label, children, required }: { label: string; children: ReactNode; required?: boolean }) {
-  return <label className="field"><span>{label}{required && <b> *</b>}</span><select>{children}</select></label>
+function SelectField({ label, children, required, value, onChange }: { label: string; children: ReactNode; required?: boolean; value?: string; onChange?: (value: string) => void }) {
+  return <label className="field"><span>{label}{required && <b> *</b>}</span><select value={value} onChange={(event) => onChange?.(event.target.value)}>{children}</select></label>
+}
+
+function DateField({ label, value, min, onChange, disabled = false }: { label: string; value: string; min?: string; onChange: (value: string) => void; disabled?: boolean }) {
+  return (
+    <label className={`compact-field date-field ${disabled ? 'is-disabled' : ''}`}>
+      <span>{label}</span>
+      <strong>{formatDate(value)}</strong>
+      <Icon name="calendar" size={18} />
+      <input aria-label={label} type="date" value={value} min={min} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  )
 }
 
 function Logo({ light = false }: { light?: boolean }) {
@@ -77,7 +134,7 @@ function Logo({ light = false }: { light?: boolean }) {
   )
 }
 
-function Header({ go, loggedIn, setLoggedIn }: { go: (p: Page) => void; loggedIn: boolean; setLoggedIn: (v: boolean) => void }) {
+function Header({ go, loggedIn, user, onLogout }: { go: (p: Page) => void; loggedIn: boolean; user: SessionUser | null; onLogout: () => void }) {
   const [mobile, setMobile] = useState(false)
   return (
     <header className="header">
@@ -92,8 +149,8 @@ function Header({ go, loggedIn, setLoggedIn }: { go: (p: Page) => void; loggedIn
         <div className="account">
           {loggedIn ? (
             <>
-              <button className="user-pill" onClick={() => go('history')}>Nguyễn Minh Anh <span><Icon name="user" size={18} /></span></button>
-              <button className="text-btn muted" onClick={() => setLoggedIn(false)}>Đăng xuất</button>
+              <button className="user-pill" onClick={() => go('history')}>{user?.fullName || 'Tài khoản Bamboo Club'} <span><Icon name="user" size={18} /></span></button>
+              <button className="text-btn muted" onClick={onLogout}>Đăng xuất</button>
             </>
           ) : (
             <>
@@ -136,14 +193,23 @@ function Footer() {
           <div className="social">Theo dõi chúng tôi &nbsp; ● &nbsp; ◎ &nbsp; ◉</div>
         </div>
       </div>
-      <div className="copyright">© 2025 Bamboo Airways. Mọi quyền được bảo lưu.</div>
+      <div className="copyright">© {currentYear} Bamboo Airways. Mọi quyền được bảo lưu.</div>
     </footer>
   )
 }
 
-function SearchCard({ go }: { go: (p: Page) => void }) {
+function SearchCard({ go, onSearch }: { go: (p: Page) => void; onSearch: (params: SearchParams) => void }) {
   const [tab, setTab] = useState('Đặt Vé')
   const [trip, setTrip] = useState('Khứ hồi')
+  const [from, setFrom] = useState('HAN')
+  const [to, setTo] = useState('SGN')
+  const [date, setDate] = useState(todayInput())
+  const [returnDate, setReturnDate] = useState(addDays(todayInput(), 7))
+  const [passengers, setPassengers] = useState('1')
+  const updateDate = (nextDate: string) => {
+    setDate(nextDate)
+    if (returnDate < nextDate) setReturnDate(nextDate)
+  }
   return (
     <div className="search-card">
       <div className="search-tabs">
@@ -154,13 +220,13 @@ function SearchCard({ go }: { go: (p: Page) => void }) {
           <div className="pay-tabs"><button className="active">Bằng Tiền</button><button>Bằng Điểm</button><button>Bằng Tiền & Điểm</button></div>
           <div className="radio-row">{['Một chiều', 'Khứ hồi', 'Đa chặng'].map((x) => <label key={x}><input type="radio" checked={trip === x} onChange={() => setTrip(x)} /> {x}</label>)}</div>
           <div className="search-fields">
-            <div className="airport"><span>TỪ</span><strong>Hà Nội</strong><b>HAN</b></div>
-            <Button className="swap"><Icon name="swap" size={17} /></Button>
-            <div className="airport"><span>TỚI</span><strong>TP. Hồ Chí Minh</strong><b>SGN</b></div>
-            <div className="compact-field"><span>NGÀY ĐI</span><strong>05 thg 10, 2025</strong></div>
-            <div className="compact-field"><span>NGÀY VỀ</span><strong>12 thg 10, 2025</strong></div>
-            <div className="compact-field"><span>HÀNH KHÁCH</span><strong>1 người lớn</strong></div>
-            <Button className="search-btn" onClick={() => go('flights')}>Tìm Chuyến Bay</Button>
+            <label className="airport"><span>TỪ</span><select value={from} onChange={(event) => setFrom(event.target.value)}><option value="HAN">Hà Nội (HAN)</option><option value="SGN">TP. Hồ Chí Minh (SGN)</option><option value="DAD">Đà Nẵng (DAD)</option><option value="CXR">Nha Trang (CXR)</option></select><b>{from}</b></label>
+            <Button className="swap" onClick={() => { setFrom(to); setTo(from) }}><Icon name="swap" size={17} /></Button>
+            <label className="airport"><span>TỚI</span><select value={to} onChange={(event) => setTo(event.target.value)}><option value="SGN">TP. Hồ Chí Minh (SGN)</option><option value="HAN">Hà Nội (HAN)</option><option value="DAD">Đà Nẵng (DAD)</option><option value="CXR">Nha Trang (CXR)</option></select><b>{to}</b></label>
+            <DateField label="NGÀY ĐI" value={date} min={todayInput()} onChange={updateDate} />
+            <DateField label="NGÀY VỀ" value={returnDate} min={date} disabled={trip === 'Một chiều'} onChange={setReturnDate} />
+            <label className="compact-field"><span>HÀNH KHÁCH</span><select value={passengers} onChange={(event) => setPassengers(event.target.value)}><option value="1">1 người lớn</option><option value="2">2 người lớn</option><option value="3">3 người lớn</option><option value="4">4 người lớn</option></select></label>
+            <Button className="search-btn" onClick={() => { onSearch({ from, to, date, passengers: Number(passengers) }); go('flights') }}>Tìm Chuyến Bay</Button>
           </div>
           <div className="search-meta">
             <label className="toggle-label"><input type="checkbox" /> <i /> Dùng tài khoản Bamboo Club của tôi để đặt vé</label>
@@ -179,12 +245,12 @@ const services = [
   ['star', 'Phòng Chờ'], ['card', 'Thẻ Quà Tặng'], ['home', 'Khách Sạn'],
 ]
 
-function Home({ go }: { go: (p: Page) => void }) {
+function Home({ go, onSearch }: { go: (p: Page) => void; onSearch: (params: SearchParams) => void }) {
   return (
     <>
       <section className="hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(0,72,92,.15), rgba(20,150,155,.05)), url(${HERO})` }}>
-        <div className="hero-copy"><span>COMBO BAY & NGHỈ DƯỠNG</span><h1>Thêm ưu đãi<br /><b>Bay trọn yêu thương</b></h1><p>Mua combo tiết kiệm đến <strong>40%</strong></p><Button className="white-btn">Chi tiết <Icon name="arrow" size={15} /></Button></div>
-        <SearchCard go={go} />
+        <div className="hero-copy"><span>COMBO BAY & NGHỈ DƯỠNG</span><h1>Thêm ưu đãi<br /><b>Bay trọn yêu thương</b></h1><p>Mua combo tiết kiệm đến <strong>40%</strong></p><Button className="white-btn" onClick={() => document.getElementById('promotions')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>Chi tiết <Icon name="arrow" size={15} /></Button></div>
+        <SearchCard go={go} onSearch={onSearch} />
       </section>
       <main>
         <div className="service-strip">{services.map(([icon, label]) => <button key={label}><Icon name={icon} /><span>{label}</span></button>)}</div>
@@ -194,27 +260,27 @@ function Home({ go }: { go: (p: Page) => void }) {
         </section>
         <div className="news-bar"><b>Tin tức</b><span>•</span><p>Bamboo Airways mở thêm nhiều đường bay nội địa hấp dẫn</p><button>Xem thêm <Icon name="arrow" size={14} /></button></div>
         <SectionTitle eyebrow="ƯU ĐÃI" title="Bay nhiều hơn, trải nghiệm nhiều hơn" />
-        <section className="promo-grid">
+        <section id="promotions" className="promo-grid">
           <article className="promo-main"><small>ƯU ĐÃI ĐẶC BIỆT</small><h3>Bay đẳng cấp<br />Nhận đặc quyền</h3><p>Giảm đến 15% cho hội viên Bamboo Club</p><Button className="white-btn">Khám phá ngay</Button></article>
           <article className="promo-food"><small>TIẾT KIỆM 30%</small><h3>Ưu đãi suất ăn trên mây</h3><p>Đặt trước để tận hưởng hương vị Việt</p></article>
           <article className="promo-night"><small>HÀNH TRÌNH MỚI</small><h3>Bay đêm, thêm tiết kiệm</h3><p>Khởi hành nhẹ nhàng, giá vé dễ chịu</p></article>
         </section>
-        <SectionTitle eyebrow="KHÁM PHÁ" title="Trải nghiệm cùng Bamboo" />
+        <SectionTitle eyebrow="KHÁM PHÁ" title="BAMBOO EXPERIENCE" />
         <ImageCards items={[
           ['Đội Bay', 'Đội tàu bay hiện đại, an toàn', COAST],
           ['Mạng bay', 'Kết nối những điểm đến tuyệt vời', BAY],
           ['Hành trình tận tâm', 'Dịch vụ từ trái tim', HERO],
         ]} />
-        <SectionTitle eyebrow="TẬN HƯỞNG TRỌN VẸN" title="Dịch vụ bổ trợ" />
+        <SectionTitle eyebrow="DỊCH VỤ BỔ TRỢ" title="Dịch vụ bổ trợ" />
         <div className="ancillary">
           {['Hành lý trả trước', 'Chọn chỗ ngồi', 'Suất ăn trên mây', 'Phòng chờ thương gia'].map((x, i) => <article key={x}><span>0{i + 1}</span><Icon name={i === 1 ? 'users' : i === 2 ? 'card' : 'star'} size={28} /><h3>{x}</h3><p>Chuẩn bị trước để chuyến bay thêm nhẹ nhàng.</p><button>Tìm hiểu thêm <Icon name="arrow" size={14} /></button></article>)}
         </div>
         <SectionTitle eyebrow="GỢI Ý CHO BẠN" title="Điểm đến phổ biến" />
         <div className="destination-grid">
           {[
-            ['Hà Nội', 'Đà Nẵng', '05/10/2025', '799.000', COAST],
-            ['TP. Hồ Chí Minh', 'Phú Quốc', '08/10/2025', '699.000', BAY],
-            ['Hà Nội', 'Nha Trang', '12/10/2025', '899.000', HERO],
+            ['Hà Nội', 'Đà Nẵng', formatDate(addDays(todayInput(), 5)), '799.000', COAST],
+            ['TP. Hồ Chí Minh', 'Phú Quốc', formatDate(addDays(todayInput(), 8)), '699.000', BAY],
+            ['Hà Nội', 'Nha Trang', formatDate(addDays(todayInput(), 12)), '899.000', HERO],
           ].map(([from, to, date, price, image]) => <article key={to} style={{ backgroundImage: `linear-gradient(0deg, rgba(0,28,56,.88), transparent 70%), url(${image})` }}><div><small>{from} →</small><h3>{to}</h3><p>{date}</p><span>chỉ từ <b>{price} VND</b></span></div><Button className="round"><Icon name="arrow" /></Button></article>)}
         </div>
         <div className="center"><Button className="outline">Xem Thêm</Button></div>
@@ -232,36 +298,76 @@ function ImageCards({ items }: { items: string[][] }) {
   return <div className="image-cards">{items.map(([title, text, img]) => <article key={title} style={{ backgroundImage: `linear-gradient(0deg, rgba(0,32,62,.82), transparent 68%), url(${img})` }}><div><h3>{title}</h3><p>{text}</p><button>Khám phá <Icon name="arrow" size={14} /></button></div></article>)}</div>
 }
 
-function AuthPage({ type, go, onLogin }: { type: 'login' | 'register'; go: (p: Page) => void; onLogin: () => void }) {
+function AuthPage({ type, go, onLogin }: { type: 'login' | 'register'; go: (p: Page) => void; onLogin: (user: SessionUser) => void }) {
   const [submitted, setSubmitted] = useState(false)
-  const submit = (e: FormEvent) => { e.preventDefault(); setSubmitted(true); if (type === 'login') setTimeout(onLogin, 450) }
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setSubmitted(true)
+    setError('')
+    const form = new FormData(e.currentTarget)
+    const username = String(form.get('username') || '')
+    const password = String(form.get('password') || '')
+    if (!username || !password) return
+    if (type === 'register' && password !== String(form.get('passwordConfirmation') || '')) {
+      setError('Mật khẩu nhập lại không khớp.')
+      return
+    }
+    setBusy(true)
+    try {
+      const payload = type === 'login'
+        ? await api<{ user: SessionUser; accessToken: string; refreshToken: string }>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) })
+        : await api<{ user: SessionUser; accessToken: string; refreshToken: string }>('/api/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({
+            username,
+            password,
+            email: String(form.get('email') || ''),
+            fullName: String(form.get('fullName') || ''),
+            identityNumber: String(form.get('identityNumber') || ''),
+            phone: String(form.get('phone') || ''),
+            gender: String(form.get('gender') || ''),
+            dateOfBirth: String(form.get('dateOfBirth') || '') || undefined,
+          }),
+        })
+      localStorage.setItem('bamboo.accessToken', payload.accessToken)
+      localStorage.setItem('bamboo.refreshToken', payload.refreshToken)
+      onLogin(payload.user)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Không thể đăng nhập.')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
-    <div className="auth-page" style={{ backgroundImage: `linear-gradient(rgba(222,247,255,.42),rgba(222,247,255,.18)), url(${HERO})` }}>
+    <div className="auth-page" style={{ backgroundImage: `linear-gradient(rgba(222,247,255,.42),rgba(222,247,255,.18)), url(${type === 'register' ? '/report-assets/register-side.jpg' : HERO})` }}>
       <button className="auth-back" onClick={() => go('home')}>← Về trang chủ</button>
       <form className={`auth-card ${type === 'register' ? 'register-card' : ''}`} onSubmit={submit}>
         <Logo />
         <h1>{type === 'login' ? 'Đăng Nhập Bamboo Club' : 'Đăng Ký Bamboo Club'}</h1>
         <p>{type === 'login' ? 'Chào mừng Quý khách trở lại' : 'Trở thành hội viên để nhận thêm nhiều đặc quyền'}</p>
         <div className={type === 'register' ? 'form-grid' : ''}>
-          <Field label="Tên đăng nhập" placeholder="Nhập tên đăng nhập" required error={submitted && type === 'register' ? 'Vui lòng nhập tên đăng nhập' : undefined} />
-          {type === 'register' && <Field label="CCCD/CMND" placeholder="Nhập số giấy tờ" required />}
-          <Field label="Mật khẩu" placeholder="Nhập mật khẩu" type="password" required />
-          {type === 'register' && <Field label="Email" placeholder="vidu@email.com" type="email" required />}
-          {type === 'register' && <><Field label="Nhập lại mật khẩu" placeholder="Nhập lại mật khẩu" type="password" required /><Field label="Số điện thoại" placeholder="090 123 4567" required /><Field label="Họ và tên" placeholder="NGUYỄN MINH ANH" required /><Field label="Ngày sinh" type="date" required /><SelectField label="Giới tính" required><option>Chọn giới tính</option><option>Nam</option><option>Nữ</option><option>Khác</option></SelectField></>}
+          <label className="field"><span>Tên đăng nhập *</span><span className="input-wrap"><input name="username" placeholder="Nhập tên đăng nhập" required /></span>{submitted && !error && type === 'register' && <small>Vui lòng nhập tên đăng nhập</small>}</label>
+          {type === 'register' && <label className="field"><span>CCCD/CMND *</span><span className="input-wrap"><input name="identityNumber" placeholder="Nhập số giấy tờ" required /></span></label>}
+          <label className="field"><span>Mật khẩu *</span><span className="input-wrap"><input name="password" placeholder="Nhập mật khẩu" type="password" minLength={8} required /></span></label>
+          {type === 'register' && <label className="field"><span>Email *</span><span className="input-wrap"><input name="email" placeholder="vidu@email.com" type="email" required /></span></label>}
+          {type === 'register' && <><label className="field"><span>Nhập lại mật khẩu *</span><span className="input-wrap"><input name="passwordConfirmation" placeholder="Nhập lại mật khẩu" type="password" required /></span></label><label className="field"><span>Số điện thoại *</span><span className="input-wrap"><input name="phone" placeholder="090 123 4567" required /></span></label><label className="field"><span>Họ và tên *</span><span className="input-wrap"><input name="fullName" placeholder="NGUYỄN MINH ANH" required /></span></label><label className="field"><span>Ngày sinh *</span><span className="input-wrap"><input name="dateOfBirth" type="date" required /></span></label><label className="field"><span>Giới tính *</span><span className="input-wrap"><select name="gender" required><option value="">Chọn giới tính</option><option>Nam</option><option>Nữ</option><option>Khác</option></select></span></label></>}
         </div>
+        {error && <p className="error-text">{error}</p>}
         {type === 'login' && <button className="forgot">Quên Mật Khẩu?</button>}
-        <Button type="submit" className="full">{type === 'login' ? 'Đăng nhập' : 'Đăng ký'}</Button>
+        <Button type="submit" className="full" disabled={busy}>{busy ? 'Đang xử lý...' : type === 'login' ? 'Đăng nhập' : 'Đăng ký'}</Button>
         <p className="auth-switch">{type === 'login' ? 'Bạn chưa là hội viên?' : 'Đã có tài khoản?'} <button onClick={() => go(type === 'login' ? 'register' : 'login')}>{type === 'login' ? 'Đăng ký Bamboo Club' : 'Đăng nhập ngay'}</button></p>
       </form>
     </div>
   )
 }
 
-function BookingBar({ go, total = '500.000 VND' }: { go: (p: Page) => void; total?: string }) {
+function BookingBar({ go, total = '500.000 VND', date }: { go: (p: Page) => void; total?: string; date?: string }) {
   return (
     <div className="booking-bar">
       <button onClick={() => go('home')} className="route"><b>HAN</b><span>Hà Nội</span><i>→</i><b>SGN</b><span>TP. Hồ Chí Minh</span></button>
-      <div><span>Khởi hành</span><b>CN, 05 thg 10</b></div>
+      <div><span>Khởi hành</span><b>{formatDate(date || todayInput(), { weekday: 'short', day: '2-digit', month: 'short' })}</b></div>
       <div><span>Hành khách</span><b>1 người lớn</b></div>
       <Button onClick={() => go('journey')}><span>Đặt chỗ của bạn</span><b>{total}</b></Button>
     </div>
@@ -272,27 +378,50 @@ function Banner({ title, subtitle }: { title: string; subtitle?: string }) {
   return <div className="page-banner" style={{ backgroundImage: `linear-gradient(90deg,rgba(0,45,75,.55),rgba(19,144,151,.18)),url(${BAY})` }}><div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div></div>
 }
 
-const dates = [
-  ['Thứ năm', '02/10', 'No flights'], ['Thứ sáu', '03/10', '900.000'], ['Thứ bảy', '04/10', '750.000'],
-  ['Chủ nhật', '05/10', '500.000'], ['Thứ hai', '06/10', '620.000'], ['Thứ ba', '07/10', '700.000'], ['Thứ tư', '08/10', 'No flights'],
-]
-
-function Flights({ go }: { go: (p: Page) => void }) {
+function Flights({ go, search, onSearch }: { go: (p: Page) => void; search: SearchParams; onSearch: (params: SearchParams) => void }) {
+  const [flights, setFlights] = useState<ApiFlight[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    setLoading(true)
+    setError('')
+    api<ApiFlight[]>(`/api/flights?from=${search.from}&to=${search.to}&date=${search.date}&passengers=${search.passengers}`)
+      .then(setFlights)
+      .catch((requestError) => setError(requestError instanceof Error ? requestError.message : 'Không thể tải chuyến bay.'))
+      .finally(() => setLoading(false))
+  }, [search])
   return (
-    <><BookingBar go={go} total="0 VND" /><Banner title="Vui lòng chọn chuyến bay" subtitle="Hà Nội đến TP. Hồ Chí Minh" />
+    <><BookingBar go={go} total="Chưa chọn" date={search.date} /><Banner title="Vui lòng chọn chuyến bay" subtitle={`${search.from} đến ${search.to} · ${formatDate(search.date)}`} />
       <main className="booking-main">
+        <div className="booking-navigation">
+          <Button className="outline" onClick={() => go('home')}><span aria-hidden>←</span> Quay lại tìm kiếm</Button>
+        </div>
         <div className="notice"><b>1 lưu ý</b><span>Giá vé hiển thị là giá cho một hành khách, chưa bao gồm thuế và phí.</span></div>
-        <div className="date-strip"><button>‹</button>{dates.map(([day, date, price], i) => <button className={`${i === 3 ? 'selected' : ''} ${price === 'No flights' ? 'disabled' : ''}`} key={date}><span>{day}</span><b>{date}</b><small>{price === 'No flights' ? 'Không có chuyến' : `${price} VND`}</small></button>)}<button>›</button></div>
+        <div className="date-strip">
+          <button aria-label="Các ngày trước" onClick={() => onSearch({ ...search, date: addDays(search.date, -1) })} disabled={search.date <= todayInput()}>‹</button>
+          {Array.from({ length: 7 }, (_, index) => addDays(search.date, index - 3)).map((date) => {
+            const selected = date === search.date
+            const past = date < todayInput()
+            return <button className={`${selected ? 'selected' : ''} ${past ? 'disabled' : ''}`} key={date} disabled={past} onClick={() => onSearch({ ...search, date })}>
+              <span>{formatDate(date, { weekday: 'long' })}</span><b>{formatDate(date, { day: '2-digit', month: '2-digit' })}</b><small>{selected ? 'Đang chọn' : 'Tìm chuyến'}</small>
+            </button>
+          })}
+          <button aria-label="Các ngày tiếp theo" onClick={() => onSearch({ ...search, date: addDays(search.date, 1) })}>›</button>
+        </div>
         <div className="flight-list">
-          <FlightCard go={go} time="07:30" arrival="09:40" duration="2 giờ 10 phút" aircraft="Airbus A321" />
-          <FlightCard go={go} time="15:25" arrival="17:35" duration="2 giờ 10 phút" aircraft="Airbus A320" />
+          {loading && <div className="notice"><span>Đang tìm chuyến bay...</span></div>}
+          {error && <div className="notice"><b>Lỗi</b><span>{error}</span></div>}
+          {!loading && !error && flights.length === 0 && <div className="notice"><b>Không có chuyến</b><span>Không tìm thấy chuyến bay phù hợp. Vui lòng đổi ngày hoặc hành trình.</span></div>}
+          {flights.map((flight) => <FlightCard key={flight.id} go={go} time={new Date(flight.departureAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} arrival={new Date(flight.arrivalAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} duration={`${Math.floor(flight.durationMinutes / 60)} giờ ${flight.durationMinutes % 60} phút`} aircraft={flight.aircraft.model} fares={flight.fares} />)}
         </div>
       </main>
     </>
   )
 }
 
-function FlightCard({ go, time, arrival, duration, aircraft }: { go: (p: Page) => void; time: string; arrival: string; duration: string; aircraft: string }) {
+function FlightCard({ go, time, arrival, duration, aircraft, fares }: { go: (p: Page) => void; time: string; arrival: string; duration: string; aircraft: string; fares: ApiFlight['fares'] }) {
+  const economy = fares.find((fare) => fare.cabinClass === 'ECONOMY')
+  const business = fares.find((fare) => fare.cabinClass === 'BUSINESS')
   return (
     <article className="flight-card">
       <div className="flight-info">
@@ -301,8 +430,8 @@ function FlightCard({ go, time, arrival, duration, aircraft }: { go: (p: Page) =
         <div className="time"><strong>{arrival}</strong><span>SGN</span><small>Nhà ga 3</small></div>
         <div className="flight-detail"><p><Icon name="clock" size={15} /> Thời gian bay: {duration}</p><p><Icon name="plane" size={15} /> {aircraft} được Bamboo Airways khai thác</p><button>Xem chi tiết hành trình</button></div>
       </div>
-      <button className="fare-tile economy" onClick={() => go('fare')}><small>Còn lại 60 chỗ</small><span>Economy</span><i>từ</i><strong>500.000</strong><b>VND</b><em>⌄</em></button>
-      <button className="fare-tile business" onClick={() => go('fare')}><small>Còn lại 10 chỗ</small><span>Business</span><i>từ</i><strong>1.500.000</strong><b>VND</b><em>⌄</em></button>
+      {economy && <button className="fare-tile economy" onClick={() => go('fare')}><small>Còn lại {economy.availableSeats} chỗ</small><span>{economy.fareName}</span><i>từ</i><strong>{money(economy.price)}</strong><b>VND</b><em>⌄</em></button>}
+      {business && <button className="fare-tile business" onClick={() => go('fare')}><small>Còn lại {business.availableSeats} chỗ</small><span>{business.fareName}</span><i>từ</i><strong>{money(business.price)}</strong><b>VND</b><em>⌄</em></button>}
     </article>
   )
 }
@@ -366,7 +495,10 @@ function Success({ go }: { go: (p: Page) => void }) {
 }
 
 function History() {
-  return <main className="history-page"><div className="history-head"><span>TÀI KHOẢN BAMBOO CLUB</span><h1>Hoạt động gần đây</h1><p>Theo dõi điểm thưởng và lịch sử chuyến bay của Quý khách.</p></div><section className="history-card"><div className="history-tabs"><button className="active">Lịch Sử Điểm Thưởng</button><button>Lịch Sử Điểm Xét Hạng</button><button>Lịch Sử Chặng Bay Xét Hạng</button></div><div className="filters"><Field label="Từ" type="date" /><Field label="Đến" type="date" /><p>Chỉ hiển thị dữ liệu trong 13 tháng.</p><button className="reset">Đặt lại bộ lọc</button><Button>Bộ lọc</Button></div><div className="result-bar"><span>Hiển thị 0 trong số 0 mục.</span><button>Xuất dữ liệu</button></div><div className="table-wrap"><table><thead><tr>{['#', 'Số giao dịch', 'Ngày', 'Mô tả', 'Loại', 'Điểm thưởng'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody><tr><td colSpan={6}>Không có dữ liệu để hiển thị</td></tr></tbody></table></div></section></main>
+  const [entries, setEntries] = useState<Array<{ id: string; transactionNo: string; createdAt: string; description: string; type: string; points: number }>>([])
+  const [error, setError] = useState('')
+  useEffect(() => { api<typeof entries>('/api/loyalty/transactions').then(setEntries).catch((requestError) => setError(requestError instanceof Error ? requestError.message : 'Không thể tải lịch sử.')) }, [])
+  return <main className="history-page"><div className="history-head"><span>TÀI KHOẢN BAMBOO CLUB</span><h1>Hoạt động gần đây</h1><p>Theo dõi điểm thưởng và lịch sử chuyến bay của Quý khách.</p></div><section className="history-card"><div className="history-tabs"><button className="active">Lịch Sử Điểm Thưởng</button><button>Lịch Sử Điểm Xét Hạng</button><button>Lịch Sử Chặng Bay Xét Hạng</button></div><div className="filters"><Field label="Từ" type="date" /><Field label="Đến" type="date" /><p>Chỉ hiển thị dữ liệu trong 13 tháng.</p><button className="reset">Đặt lại bộ lọc</button><Button>Bộ lọc</Button></div><div className="result-bar"><span>Hiển thị {entries.length} mục.</span><button>Xuất dữ liệu</button></div>{error && <p className="error-text">{error}</p>}<div className="table-wrap"><table><thead><tr>{['#', 'Số giao dịch', 'Ngày', 'Mô tả', 'Loại', 'Điểm thưởng'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{entries.length ? entries.map((entry, index) => <tr key={entry.id}><td>{index + 1}</td><td>{entry.transactionNo}</td><td>{new Date(entry.createdAt).toLocaleDateString('vi-VN')}</td><td>{entry.description}</td><td>{entry.type}</td><td>{entry.points > 0 ? '+' : ''}{entry.points}</td></tr>) : <tr><td colSpan={6}>Chưa có dữ liệu điểm thưởng.</td></tr>}</tbody></table></div></section></main>
 }
 
 const initialReviews = [
@@ -379,29 +511,46 @@ function Reviews({ loggedIn, go }: { loggedIn: boolean; go: (p: Page) => void })
   const [rating, setRating] = useState(5)
   const [comment, setComment] = useState('')
   const [reviews, setReviews] = useState(initialReviews)
-  const add = () => { if (comment.trim()) { setReviews([['Nguyễn Minh Anh', rating, comment], ...reviews]); setComment('') } }
-  return <><Banner title="Danh Sách Đánh Giá" subtitle="Lắng nghe chia sẻ từ hành khách Bamboo Airways" /><main className="review-page">{loggedIn ? <section className="comment-box"><div className="comment-head"><span className="avatar">MA</span><div><b>Chia sẻ trải nghiệm của bạn</b><div className="star-picker">{[1, 2, 3, 4, 5].map((n) => <button className={n <= rating ? 'on' : ''} onClick={() => setRating(n)} key={n}><Icon name="star" size={22} /></button>)}</div></div></div><textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Viết đánh giá của bạn..." /><Button onClick={add}>Gửi đánh giá</Button></section> : <p className="login-warning">Bạn cần <button onClick={() => go('login')}>đăng nhập</button> để thêm bình luận.</p>}<div className="review-list">{reviews.map(([name, stars, text], i) => <article className="review-card" key={`${name}-${i}`}><span className="avatar">{String(name).split(' ').slice(-1)[0].slice(0, 1)}</span><div><header><b>{name}</b><span>{Array.from({ length: 5 }, (_, j) => <Icon key={j} name="star" size={16} />)}</span></header><p>{text}</p><footer><span>10 tháng trước</span><button>Trả lời</button><button>Xem câu trả lời</button></footer></div></article>)}</div></main><Footer /></>
+  const [error, setError] = useState('')
+  useEffect(() => { api<Array<{ user: { fullName: string }; rating: number; comment: string }>>('/api/reviews').then((items) => setReviews(items.map((item) => [item.user.fullName, item.rating, item.comment]))).catch(() => undefined) }, [])
+  const add = async () => {
+    if (comment.trim().length < 10) { setError('Đánh giá cần có ít nhất 10 ký tự.'); return }
+    try {
+      await api('/api/reviews', { method: 'POST', body: JSON.stringify({ rating, comment }) })
+      setReviews([['Bạn', rating, comment], ...reviews])
+      setComment('')
+      setError('')
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Không thể gửi đánh giá.') }
+  }
+  return <><Banner title="Danh Sách Đánh Giá" subtitle="Lắng nghe chia sẻ từ hành khách Bamboo Airways" /><main className="review-page">{loggedIn ? <section className="comment-box"><div className="comment-head"><span className="avatar">MA</span><div><b>Chia sẻ trải nghiệm của bạn</b><div className="star-picker">{[1, 2, 3, 4, 5].map((n) => <button className={n <= rating ? 'on' : ''} onClick={() => setRating(n)} key={n}><Icon name="star" size={22} /></button>)}</div></div></div><textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Viết đánh giá của bạn..." /><Button onClick={add}>Gửi đánh giá</Button>{error && <p className="error-text">{error}</p>}</section> : <p className="login-warning">Bạn cần <button onClick={() => go('login')}>đăng nhập</button> để thêm bình luận.</p>}<div className="review-list">{reviews.map(([name, stars, text], i) => <article className="review-card" key={`${name}-${i}`}><span className="avatar">{String(name).split(' ').slice(-1)[0].slice(0, 1)}</span><div><header><b>{name}</b><span>{Array.from({ length: 5 }, (_, j) => <Icon key={j} name="star" size={16} />)}</span></header><p>{text}</p><footer><span>10 tháng trước</span><button>Trả lời</button><button>Xem câu trả lời</button></footer></div></article>)}</div></main><Footer /></>
 }
 
 export default function App() {
   const [page, setPage] = useState<Page>('home')
   const [loggedIn, setLoggedIn] = useState(false)
+  const [user, setUser] = useState<SessionUser | null>(null)
+  const [search, setSearch] = useState<SearchParams>({ from: 'HAN', to: 'SGN', date: todayInput(), passengers: 1 })
+  useEffect(() => {
+    setLoggedIn(Boolean(localStorage.getItem('bamboo.accessToken')))
+  }, [])
   const go = (next: Page) => { setPage(next); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  const login = (nextUser: SessionUser) => { setUser(nextUser); setLoggedIn(true); go('home') }
+  const logout = () => { localStorage.removeItem('bamboo.accessToken'); localStorage.removeItem('bamboo.refreshToken'); setUser(null); setLoggedIn(false); go('home') }
   const bookingPages = useMemo(() => ['flights', 'fare', 'journey', 'passengers', 'seats', 'payment'].includes(page), [page])
   return (
     <div className="app">
-      {!bookingPages && !['login', 'register', 'success'].includes(page) && <Header go={go} loggedIn={loggedIn} setLoggedIn={setLoggedIn} />}
-      {page === 'home' && <Home go={go} />}
-      {page === 'login' && <AuthPage type="login" go={go} onLogin={() => { setLoggedIn(true); go('home') }} />}
-      {page === 'register' && <AuthPage type="register" go={go} onLogin={() => setLoggedIn(true)} />}
-      {page === 'flights' && <Flights go={go} />}
+      {!bookingPages && !['login', 'register', 'success'].includes(page) && <Header go={go} loggedIn={loggedIn} user={user} onLogout={logout} />}
+      {page === 'home' && <Home go={go} onSearch={setSearch} />}
+      {page === 'login' && <AuthPage type="login" go={go} onLogin={login} />}
+      {page === 'register' && <AuthPage type="register" go={go} onLogin={login} />}
+      {page === 'flights' && <Flights go={go} search={search} onSearch={setSearch} />}
       {page === 'fare' && <Fare go={go} />}
       {page === 'journey' && <Journey go={go} />}
       {page === 'passengers' && <Passengers go={go} loggedIn={loggedIn} />}
       {page === 'seats' && <Seats go={go} />}
       {page === 'payment' && <Payment go={go} />}
       {page === 'success' && <Success go={go} />}
-      {page === 'history' && <History />}
+      {page === 'history' && (loggedIn ? <History /> : <AuthPage type="login" go={go} onLogin={login} />)}
       {page === 'reviews' && <Reviews loggedIn={loggedIn} go={go} />}
     </div>
   )
