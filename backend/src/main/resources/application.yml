@@ -1,0 +1,21 @@
+server:
+  port: ${PORT:4000}
+spring:
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/bamboo_booking}
+    username: ${MYSQL_USER:bamboo}
+    password: ${MYSQL_PASSWORD:change-me}
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    open-in-view: false
+  sql:
+    init:
+      mode: never
+bamboo:
+  jwt:
+    access-secret: ${JWT_ACCESS_SECRET:development-access-secret-change-in-production}
+    refresh-secret: ${JWT_REFRESH_SECRET:development-refresh-secret-change-in-production}
+    access-minutes: ${JWT_ACCESS_MINUTES:15}
+    refresh-days: ${JWT_REFRESH_DAYS:7}
+  cors-origins: ${CLIENT_ORIGIN:http://localhost:5173,http://localhost:8443}

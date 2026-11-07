@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:bamboo;MODE=MySQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+bamboo:
+  jwt:
+    access-secret: test-access-secret-012345678901234567890123
+    refresh-secret: test-refresh-secret-012345678901234567890123

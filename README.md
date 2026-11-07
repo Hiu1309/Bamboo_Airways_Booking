@@ -1,6 +1,7 @@
 # Bamboo Airways Booking
 
-Website đặt vé máy bay Bamboo Airways gồm frontend React/Vite và backend REST API Node.js/Express.
+Website đặt vé máy bay phục vụ đồ án môn học. Dự án gồm frontend React và
+backend Spring Boot kết nối MySQL.
 
 ## 1. Công nghệ sử dụng
 
@@ -9,94 +10,114 @@ Website đặt vé máy bay Bamboo Airways gồm frontend React/Vite và backend
 - React 19
 - TypeScript
 - Vite
-- Tailwind CSS
-
-Thư mục: [frontend/](./frontend/)
+- npm
 
 ### Backend
 
-- Node.js
-- Express
-- TypeScript
-- Prisma ORM
-- SQLite
-- JWT access token và refresh token
-- Zod validation
-
-Thư mục: [backend/](./backend/)
+- Java 17
+- Spring Boot 3.5.7
+- Spring Data JPA
+- Maven Wrapper
+- JWT dùng cho đăng nhập
 
 ### Database
 
-Dự án dùng SQLite nên không cần cài SQL Server, MySQL hoặc PostgreSQL khi chạy local.
+- MySQL Server
+- SQLTools trong VS Code để xem bảng và chạy câu lệnh SQL
 
-Database được Prisma tự tạo tại:
-
-```text
-backend/prisma/dev.db
-```
-
-Schema database nằm tại [backend/prisma/schema.prisma](./backend/prisma/schema.prisma).
-
-## 2. Cấu trúc dự án
+## 2. Cấu trúc thư mục
 
 ```text
 Bamboo_Airways_Booking/
-├── frontend/
-│   ├── src/
-│   │   ├── App.tsx
-│   │   └── index.css
-│   ├── package.json
-│   └── vite.config.ts
+├── frontend/                         # Giao diện React
 ├── backend/
-│   ├── prisma/
-│   │   ├── schema.prisma
-│   │   └── seed.ts
-│   ├── src/
-│   │   └── server.ts
-│   ├── package.json
-│   └── .env.example
+│   ├── src/main/java/                # Code Spring Boot
+│   │   └── com/bambooairways/booking/
+│   │       ├── controller/            # Nhận request từ frontend
+│   │       ├── service/               # Xử lý nghiệp vụ đặt vé
+│   │       ├── repository/            # Truy vấn database qua JPA
+│   │       ├── entity/                # Mỗi bảng database một class riêng
+│   │       ├── dto/                   # Dữ liệu request
+│   │       ├── config/                # Cấu hình CORS
+│   │       └── initializer/           # Tạo dữ liệu mẫu khi chạy lần đầu
+│   ├── src/main/resources/           # Cấu hình ứng dụng
+│   ├── pom.xml                       # Dependency backend
+│   └── mvnw.cmd                      # Maven Wrapper cho Windows
 └── README.md
 ```
 
-## 3. Yêu cầu môi trường
+## 3. Cài đặt lần đầu
 
-- Node.js 20 trở lên
-- npm
+Mỗi thành viên trong nhóm cần cài:
 
-Kiểm tra phiên bản:
+1. Git
+2. Node.js 20 trở lên
+3. Java JDK 17
+4. MySQL Server
+5. Extension `SQLTools` và `SQLTools MySQL/MariaDB Driver` trong VS Code
+
+Kiểm tra cài đặt:
 
 ```powershell
+git --version
 node --version
-npm.cmd --version
+java --version
 ```
 
-## 4. Cài đặt và chạy backend
+## 4. Tạo database MySQL
+
+Khởi động dịch vụ MySQL trong Windows Services. Sau đó mở SQLTools và chạy:
+
+```sql
+CREATE DATABASE bamboo_booking
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+```
+
+Có thể dùng tài khoản `root` cho đồ án. Nếu dùng tài khoản riêng:
+
+```sql
+CREATE USER 'bamboo'@'localhost' IDENTIFIED BY 'change-me';
+GRANT ALL PRIVILEGES ON bamboo_booking.* TO 'bamboo'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Spring Boot sẽ tự tạo các bảng khi chạy lần đầu. Không cần tự viết lệnh
+`CREATE TABLE`.
+
+## 5. Chạy backend
 
 Mở terminal thứ nhất:
 
 ```powershell
 cd D:\test\qldapm\Bamboo_Airways_Booking\backend
-Copy-Item .env.example .env
-npm.cmd install
-npx.cmd prisma generate
-npx.cmd prisma db push
-npm.cmd run db:seed
-npm.cmd run dev
 ```
 
-Backend chạy tại:
+Thiết lập thông tin MySQL trong terminal hiện tại. Thay mật khẩu bằng mật khẩu
+MySQL của máy bạn:
+
+```powershell
+$env:MYSQL_URL="jdbc:mysql://localhost:3306/bamboo_booking?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh"
+$env:MYSQL_USER="root"
+$env:MYSQL_PASSWORD="MAT_KHAU_MYSQL"
+$env:JPA_DDL_AUTO="update"
+```
+
+Chạy backend:
+
+```powershell
+.\mvnw.cmd spring-boot:run
+```
+
+Không đóng terminal này trong lúc sử dụng website.
+
+Kiểm tra backend bằng trình duyệt:
 
 ```text
-http://localhost:4000
+http://localhost:4000/health
 ```
 
-Kiểm tra backend:
-
-```text
-GET http://localhost:4000/health
-```
-
-Kết quả mong đợi:
+Kết quả đúng:
 
 ```json
 {
@@ -105,7 +126,14 @@ Kết quả mong đợi:
 }
 ```
 
-## 5. Cài đặt và chạy frontend
+Sau khi backend chạy, có thể kiểm tra bảng trong SQLTools:
+
+```sql
+USE bamboo_booking;
+SHOW TABLES;
+```
+
+## 6. Chạy frontend
 
 Mở terminal thứ hai:
 
@@ -115,15 +143,39 @@ npm.cmd install
 npm.cmd run dev
 ```
 
-Frontend thường chạy tại:
+Mở website:
 
 ```text
-http://localhost:8443/
+http://localhost:8443
 ```
 
-Frontend và backend là hai project Node.js riêng, vì vậy mỗi thư mục cần chạy `npm.cmd install` riêng.
+Frontend chạy bằng Node.js/npm, còn backend chạy bằng Java/Maven. Hai phần này
+cần chạy đồng thời trong hai terminal khác nhau.
 
-## 6. Tài khoản mẫu
+## 7. Cách tổ chức backend
+
+Backend dùng mô hình đơn giản phù hợp với đồ án:
+
+```text
+Controller -> Service -> Repository -> MySQL
+                   |
+                 Entity
+```
+
+- `controller`: nhận request, đọc dữ liệu đầu vào và gọi service.
+- `service`: xử lý nghiệp vụ như đăng nhập, tìm chuyến, tạo booking và thanh toán
+  mô phỏng.
+- `repository`: dùng Spring Data JPA để đọc và ghi dữ liệu.
+- `dto`: mô tả dữ liệu frontend gửi lên, giúp code dễ đọc hơn `Map` ở request.
+- `entity`: mô tả các bảng trong database, mỗi entity nằm trong một file riêng.
+- `initializer`: tạo tài khoản, sân bay và chuyến bay mẫu để nhóm dễ kiểm thử.
+
+Các thành viên chỉ cần tìm đúng lớp theo chức năng, không cần học thêm
+microservices hay các framework phức tạp. Khi thêm một chức năng mới, có thể
+thực hiện theo thứ tự: thêm DTO nếu cần, viết hàm trong service, sau đó thêm
+endpoint trong controller.
+
+## 8. Tài khoản mẫu
 
 Tài khoản quản trị:
 
@@ -139,118 +191,138 @@ Username: minhanh
 Password: Password123!
 ```
 
-## 7. Luồng nghiệp vụ của website
+Dữ liệu mẫu được tạo tự động khi backend khởi động lần đầu.
 
-Website hỗ trợ các luồng chính:
+## 9. Các chức năng chính
 
-1. Khách hàng đăng ký tài khoản Bamboo Club.
-2. Khách hàng đăng nhập.
-3. Tìm chuyến bay theo:
-   - Sân bay đi
-   - Sân bay đến
-   - Ngày bay
-   - Số lượng hành khách
-4. Chọn chuyến bay.
-5. Chọn hạng vé Economy hoặc Business.
-6. Nhập thông tin hành khách và thông tin liên lạc.
-7. Chọn ghế trên sơ đồ máy bay.
-8. Chọn phương thức thanh toán.
-9. Nhận mã đặt chỗ và xem vé điện tử.
-10. Xem lịch sử đặt vé và điểm thưởng.
-11. Gửi đánh giá về dịch vụ.
-12. Quản trị viên quản lý chuyến bay và booking.
+1. Đăng ký và đăng nhập.
+2. Tìm chuyến bay theo sân bay, ngày bay và số hành khách.
+3. Chọn hạng vé Economy hoặc Business.
+4. Nhập thông tin hành khách.
+5. Chọn ghế.
+6. Thanh toán mô phỏng.
+7. Nhận mã đặt chỗ.
+8. Xem lịch sử điểm cơ bản.
+9. Xem và gửi đánh giá.
+10. API quản trị xem booking và thêm chuyến bay.
 
-## 8. API chính
+## 10. API chính
 
-Các endpoint backend nằm trong [backend/src/server.ts](./backend/src/server.ts).
+| Nhóm | Method | Endpoint | Chức năng |
+|---|---|---|---|
+| Auth | POST | `/api/auth/register` | Đăng ký |
+| Auth | POST | `/api/auth/login` | Đăng nhập |
+| Auth | POST | `/api/auth/refresh` | Làm mới token |
+| Catalog | GET | `/api/airports` | Danh sách sân bay |
+| Catalog | GET | `/api/flights` | Tìm chuyến bay |
+| Booking | GET | `/api/flights/{id}/seats` | Xem ghế |
+| Booking | POST | `/api/bookings` | Tạo booking |
+| Booking | GET | `/api/bookings` | Lịch sử booking |
+| Booking | GET | `/api/bookings/{code}` | Chi tiết booking |
+| Payment | POST | `/api/bookings/{code}/payments` | Thanh toán demo |
+| Review | GET | `/api/reviews` | Xem đánh giá |
+| Review | POST | `/api/reviews` | Gửi đánh giá |
+| Loyalty | GET | `/api/loyalty/transactions` | Lịch sử điểm |
+| Admin | GET | `/api/admin/bookings` | Xem booking |
+| Admin | POST | `/api/admin/flights` | Thêm chuyến bay |
 
-| Nhóm    | Method | Endpoint                       | Mục đích                 |
-| ------- | ------ | ------------------------------ | ------------------------ |
-| Auth    | POST   | `/api/auth/register`           | Đăng ký tài khoản        |
-| Auth    | POST   | `/api/auth/login`              | Đăng nhập                |
-| Auth    | POST   | `/api/auth/refresh`            | Làm mới access token     |
-| Auth    | POST   | `/api/auth/forgot-password`    | Yêu cầu đặt lại mật khẩu |
-| Auth    | POST   | `/api/auth/reset-password`     | Đặt mật khẩu mới         |
-| Catalog | GET    | `/api/airports`                | Danh sách sân bay        |
-| Catalog | GET    | `/api/flights`                 | Tìm chuyến bay           |
-| Booking | GET    | `/api/flights/:id/seats`       | Xem sơ đồ ghế            |
-| Booking | POST   | `/api/bookings`                | Tạo booking và giữ ghế   |
-| Booking | GET    | `/api/bookings`                | Xem lịch sử booking      |
-| Booking | GET    | `/api/bookings/:code`          | Xem chi tiết booking     |
-| Payment | POST   | `/api/bookings/:code/payments` | Tạo thanh toán           |
-| Reviews | GET    | `/api/reviews`                 | Xem đánh giá             |
-| Reviews | POST   | `/api/reviews`                 | Gửi đánh giá             |
-| Loyalty | GET    | `/api/loyalty/transactions`    | Xem lịch sử điểm         |
-| Admin   | GET    | `/api/admin/bookings`          | Quản lý booking          |
-| Admin   | POST   | `/api/admin/flights`           | Tạo chuyến bay           |
-
-Các endpoint yêu cầu đăng nhập cần gửi header:
+Các API cần đăng nhập sử dụng header:
 
 ```text
-Authorization: Bearer <accessToken>
+Authorization: Bearer <access-token>
 ```
 
-## 9. Database và Prisma
+## 11. Phân công hoàn thiện đồ án
 
-Sau khi chạy:
+| Thành viên | Phạm vi chính | Kết quả cần bàn giao |
+|---|---|---|
+| Thành viên 1 | Đăng ký, đăng nhập, đăng xuất, refresh token, quên/đặt lại mật khẩu, tài khoản | Luồng xác thực hoàn chỉnh và test lỗi nhập sai |
+| Thành viên 2 | Tìm chuyến, một chiều/khứ hồi, chọn hạng vé, hành khách, ghế và tạo booking | Luồng đặt vé từ trang chủ đến mã đặt chỗ |
+| Thành viên 3 | Thanh toán mô phỏng, trạng thái booking, điểm thưởng và các tab thanh toán | Thanh toán cập nhật đúng booking và hiển thị lịch sử điểm |
+| Thành viên 4 | Trang quản trị chuyến bay/booking và đánh giá | Phân quyền admin, thêm chuyến, xem booking, gửi/xem review |
+| Thành viên 5 | Kiểm thử giao diện/API, sửa lỗi tích hợp, README và chuẩn bị GitHub | Bảng lỗi, kết quả test, hướng dẫn chạy và checklist demo |
+
+Sau khi 5 phần hoàn tất, cả nhóm cùng review trên một nhánh tích hợp,
+chạy `clean verify`, build frontend và kiểm tra lại luồng đặt vé từ đầu đến cuối.
+
+## 12. Kiểm tra và build
+
+Kiểm tra backend:
 
 ```powershell
-npx.cmd prisma db push
-npm.cmd run db:seed
-```
-
-Prisma sẽ:
-
-- Tạo database SQLite.
-- Tạo các bảng theo schema.
-- Sinh Prisma Client.
-- Thêm dữ liệu mẫu sân bay, máy bay, chuyến bay, hạng vé, ghế và tài khoản.
-
-Mở giao diện xem database:
-
-```powershell
-cd D:\test\qldapm\Bamboo_Airways_Booking\backend
-npx.cmd prisma studio
-```
-
-Prisma Studio thường chạy tại:
-
-```text
-http://localhost:5555
-```
-
-## 10. Build kiểm tra dự án
-
-Build backend:
-
-```powershell
-cd D:\test\qldapm\Bamboo_Airways_Booking\backend
-npm.cmd run build
+cd backend
+.\mvnw.cmd clean verify
 ```
 
 Build frontend:
 
 ```powershell
-cd D:\test\qldapm\Bamboo_Airways_Booking\frontend
+cd frontend
 npm.cmd run build
 ```
 
-## 11. Thanh toán
+## 13. Làm việc nhóm bằng Git
 
-Backend hiện có adapter thanh toán demo để hoàn thiện luồng đồ án. Các phương thức đã được mô hình hóa:
+Trước khi làm việc:
 
-- Thẻ tín dụng/ghi nợ
-- VietQR
-- VNPAY-QR
-- MoMo
-- Thẻ ATM nội địa
-- Trả sau
+```powershell
+git pull
+```
 
-Khi triển khai thực tế, cần thay adapter demo bằng tích hợp chính thức với VNPAY/MoMo, xác minh chữ ký callback/webhook và chỉ chuyển booking sang `CONFIRMED` sau khi giao dịch được xác thực.
+Sau khi sửa code:
 
-## 12. Lưu ý bảo mật
+```powershell
+git status
+git add .
+git commit -m "Mô tả ngắn thay đổi"
+git push
+```
 
-- Không commit file `backend/.env`.
-- Đổi `JWT_ACCESS_SECRET` và `JWT_REFRESH_SECRET` trước khi triển khai.
-- Không sử dụng mật khẩu tài khoản seed trong môi trường production.
-- Database SQLite phù hợp cho local và đồ án; hệ thống production nhiều người dùng nên chuyển sang PostgreSQL hoặc MySQL.
+Không commit các file sau:
+
+- Mật khẩu MySQL thật.
+- JWT secret thật.
+- Thư mục `target`.
+- File `.env`.
+
+## 14. Một số lỗi thường gặp
+
+### Không kết nối được MySQL
+
+Kiểm tra MySQL Service đang ở trạng thái `Running` và port là `3306`.
+
+### Access denied for user
+
+Kiểm tra lại `MYSQL_USER` và `MYSQL_PASSWORD` trong terminal chạy backend.
+
+### Không thấy bảng trong SQLTools
+
+Đảm bảo đang chọn đúng database:
+
+```sql
+USE bamboo_booking;
+SHOW TABLES;
+```
+
+Kiểm tra log backend phải có kết nối MySQL, không phải:
+
+```text
+jdbc:h2:mem:bamboo
+```
+
+### Frontend báo Failed to fetch
+
+Kiểm tra backend trước:
+
+```text
+http://localhost:4000/health
+```
+
+Sau đó kiểm tra frontend đang gọi đúng port `4000`.
+
+## 15. Ghi chú cho đồ án
+
+Thanh toán hiện là thanh toán mô phỏng, phù hợp để trình bày luồng đặt vé.
+Database sử dụng `ddl-auto: update` để Spring Boot tự tạo bảng khi chạy. Khi
+thay đổi entity, cần kiểm tra lại các bảng trong SQLTools và thông báo cho các
+thành viên trước khi push code.
