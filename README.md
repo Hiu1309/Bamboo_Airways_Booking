@@ -53,7 +53,7 @@ Mỗi thành viên trong nhóm cần cài:
 1. Git
 2. Node.js 20 trở lên
 3. Java JDK 17
-4. MySQL Server
+4. XAMPP (bật dịch vụ MySQL)
 5. Extension `SQLTools` và `SQLTools MySQL/MariaDB Driver` trong VS Code
 
 Kiểm tra cài đặt:
@@ -64,9 +64,10 @@ node --version
 java --version
 ```
 
-## 4. Tạo database MySQL
+## 4. Tạo database trên XAMPP
 
-Khởi động dịch vụ MySQL trong Windows Services. Sau đó mở SQLTools và chạy:
+Mở XAMPP Control Panel, bấm **Start** ở dòng **MySQL**, sau đó mở
+`http://localhost/phpmyadmin` hoặc SQLTools và chạy:
 
 ```sql
 CREATE DATABASE bamboo_booking
@@ -74,7 +75,9 @@ CREATE DATABASE bamboo_booking
   COLLATE utf8mb4_unicode_ci;
 ```
 
-Có thể dùng tài khoản `root` cho đồ án. Nếu dùng tài khoản riêng:
+Mặc định XAMPP dùng tài khoản `root`, mật khẩu rỗng và port `3306`. Nếu bạn
+đã cấu hình mật khẩu hoặc port khác, dùng các giá trị đó trong biến môi trường.
+Nếu muốn tạo tài khoản riêng:
 
 ```sql
 CREATE USER 'bamboo'@'localhost' IDENTIFIED BY 'change-me';
@@ -93,13 +96,13 @@ Mở terminal thứ nhất:
 cd D:\test\qldapm\Bamboo_Airways_Booking\backend
 ```
 
-Thiết lập thông tin MySQL trong terminal hiện tại. Thay mật khẩu bằng mật khẩu
-MySQL của máy bạn:
+Thiết lập thông tin MySQL của XAMPP trong terminal hiện tại. Với cấu hình mặc
+định của XAMPP, mật khẩu để trống:
 
 ```powershell
-$env:MYSQL_URL="jdbc:mysql://localhost:3306/bamboo_booking?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh"
+$env:MYSQL_URL="jdbc:mysql://localhost:3306/bamboo_booking?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh"
 $env:MYSQL_USER="root"
-$env:MYSQL_PASSWORD="MAT_KHAU_MYSQL"
+$env:MYSQL_PASSWORD=""
 $env:JPA_DDL_AUTO="update"
 ```
 

@@ -1,21 +1,26 @@
 # Spring Boot backend
 
 Đây là backend Spring Boot của đồ án. Backend chạy ở port 4000 và kết nối
-đến MySQL.
+đến MySQL của XAMPP.
 
-```powershell
-$env:MYSQL_URL="jdbc:mysql://localhost:3306/bamboo_booking"
-$env:MYSQL_USER="bamboo"; $env:MYSQL_PASSWORD="change-me"
-.\mvnw.cmd spring-boot:run
+Trước khi chạy, mở XAMPP Control Panel và bật **MySQL**. Tạo database
+`bamboo_booking` bằng cách import file
+[`bamboo_booking.database`](./bamboo_booking.database) trong phpMyAdmin
+(`http://localhost/phpmyadmin`), hoặc chạy:
+
+```sql
+CREATE DATABASE bamboo_booking
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
 ```
 
-Trước khi chạy, cần bật MySQL và tạo database `bamboo_booking`. Trong PowerShell,
-cấu hình thông tin kết nối:
+Mặc định XAMPP dùng `root`, mật khẩu rỗng và port `3306`. Nếu bạn đã đổi
+mật khẩu hoặc port trong XAMPP, sửa các biến môi trường bên dưới:
 
 ```powershell
-$env:MYSQL_URL="jdbc:mysql://localhost:3306/bamboo_booking?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh"
+$env:MYSQL_URL="jdbc:mysql://localhost:3306/bamboo_booking?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh"
 $env:MYSQL_USER="root"
-$env:MYSQL_PASSWORD="MAT_KHAU_MYSQL"
+$env:MYSQL_PASSWORD=""
 $env:JPA_DDL_AUTO="update"
 ```
 
