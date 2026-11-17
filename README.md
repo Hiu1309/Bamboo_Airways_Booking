@@ -109,7 +109,8 @@ $env:JPA_DDL_AUTO="update"
 Chạy backend:
 
 ```powershell
-.\mvnw.cmd spring-boot:run
+.\mvnw.cmd package -DskipTests
+java -jar target\booking-api-1.0.0.jar
 ```
 
 Không đóng terminal này trong lúc sử dụng website.
