@@ -15,8 +15,10 @@ import org.springframework.stereotype.Component;
 
 
 import java.time.Instant;
-
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 
 
 /**
@@ -37,12 +39,15 @@ class DataInitializer implements CommandLineRunner {
 
     private final SeatRepository seats;
 
+    private final LoyaltyEntryRepository loyalty;
+
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
 
     DataInitializer(UserRepository users, AirportRepository airports,
                     AircraftRepository aircraft, FlightRepository flights,
-                    FareRepository fares, SeatRepository seats) {
+                    FareRepository fares, SeatRepository seats,
+                    LoyaltyEntryRepository loyalty) {
         this.users = users;
 
         this.airports = airports;
@@ -54,6 +59,8 @@ class DataInitializer implements CommandLineRunner {
         this.fares = fares;
 
         this.seats = seats;
+
+        this.loyalty = loyalty;
 
     }
 
@@ -68,13 +75,74 @@ class DataInitializer implements CommandLineRunner {
         AirportEntity hoChiMinh = createAirport(
                 "sgn", "SGN", "Tan Son Nhat International Airport", "Ho Chi Minh City");
 
-        AircraftEntity airplane = createAircraft();
+        AirportEntity daNang = createAirport(
+                "dad", "DAD", "Da Nang International Airport", "Da Nang");
 
+        AirportEntity nhaTrang = createAirport(
+                "cxr", "CXR", "Cam Ranh International Airport", "Nha Trang");
+
+        AircraftEntity airplane = createAircraft();
 
         if (flights.findByFlightNumber("QH101").isEmpty()) {
             createSampleFlight(hanoi, hoChiMinh, airplane);
-
         }
+
+        seedRandomFlights(List.of(hanoi, hoChiMinh, daNang, nhaTrang), airplane, 100);
+    }
+
+    private void seedRandomFlights(List<AirportEntity> airportList, AircraftEntity airplane, int targetExtra) {
+        long existing = flights.count();
+        int toCreate = (int) Math.max(0, (targetExtra + 1) - existing);
+        if (toCreate == 0) {
+            return;
+        }
+
+        Random random = new Random(20261118L);
+        Instant baseDay = Instant.now().truncatedTo(ChronoUnit.DAYS);
+        List<FlightEntity> batchFlights = new ArrayList<>();
+        List<FareEntity> batchFares = new ArrayList<>();
+        List<SeatEntity> batchSeats = new ArrayList<>();
+
+        for (int i = 1; i <= toCreate; i++) {
+            int depIdx = random.nextInt(airportList.size());
+            int arrIdx = (depIdx + 1 + random.nextInt(airportList.size() - 1)) % airportList.size();
+            AirportEntity departure = airportList.get(depIdx);
+            AirportEntity arrival = airportList.get(arrIdx);
+
+            int dayOffset = random.nextInt(14);
+            int hour = 5 + random.nextInt(17); // 05:00 - 21:00 UTC
+            int minute = random.nextBoolean() ? 0 : 30;
+            int durationMinutes = 70 + random.nextInt(60);
+
+            int basePrice = (900 + random.nextInt(16) * 100) * 1000; // 900k - 2.4M
+            int businessPrice = basePrice + (1_200 + random.nextInt(10) * 100) * 1000;
+
+            String flightNumber = String.format("QH%03d", 200 + i);
+            while (flights.findByFlightNumber(flightNumber).isPresent()) {
+                flightNumber = String.format("QH%03d", 200 + i + random.nextInt(700));
+            }
+
+            FlightEntity flight = new FlightEntity();
+            flight.id = "seed-" + flightNumber.toLowerCase() + "-" + i;
+            flight.flightNumber = flightNumber;
+            flight.departureAirportId = departure.id;
+            flight.arrivalAirportId = arrival.id;
+            flight.aircraftId = airplane.id;
+            flight.departureAt = baseDay.plus(dayOffset, ChronoUnit.DAYS).plus(hour, ChronoUnit.HOURS).plus(minute, ChronoUnit.MINUTES);
+            flight.arrivalAt = flight.departureAt.plus(durationMinutes, ChronoUnit.MINUTES);
+            flight.basePrice = basePrice;
+            flight.businessPrice = businessPrice;
+            flight.status = FlightStatus.SCHEDULED;
+            batchFlights.add(flight);
+
+            batchFares.add(buildFare(flight, "ECONOMY", "ECO", basePrice, 112));
+            batchFares.add(buildFare(flight, "BUSINESS", "BUSINESS", businessPrice, 16));
+            batchSeats.addAll(buildSeats(flight));
+        }
+
+        flights.saveAll(batchFlights);
+        fares.saveAll(batchFares);
+        seats.saveAll(batchSeats);
     }
 
     private void createSampleUsers() {
@@ -119,6 +187,20 @@ class DataInitializer implements CommandLineRunner {
             users.save(customer);
 
         }
+
+        users.findByUsernameOrEmail("minhanh", "minhanh").ifPresent(customer -> {
+            if (loyalty.findByUserIdOrderByCreatedAtDesc(customer.id).isEmpty()) {
+                LoyaltyEntryEntity entry = new LoyaltyEntryEntity();
+                entry.id = "seed-customer-initial-points";
+                entry.userId = customer.id;
+                entry.description = "Diem thuong ban dau";
+                entry.type = "EARN";
+                entry.points = 1000;
+                entry.transactionNo = "SEED-LOYALTY-MINHANH";
+                entry.createdAt = Instant.now();
+                loyalty.save(entry);
+            }
+        });
     }
 
     private AirportEntity createAirport(String id, String code, String name, String city) {
@@ -197,47 +279,40 @@ class DataInitializer implements CommandLineRunner {
 
     private void createFare(FlightEntity flight, String cabinClass, String fareName,
                             int price, int availableSeats) {
+        fares.save(buildFare(flight, cabinClass, fareName, price, availableSeats));
+    }
+
+    private FareEntity buildFare(FlightEntity flight, String cabinClass, String fareName,
+                               int price, int availableSeats) {
         FareEntity fare = new FareEntity();
-
         fare.id = flight.id + "-" + cabinClass.toLowerCase();
-
         fare.flightId = flight.id;
-
         fare.cabinClass = cabinClass;
-
         fare.fareName = fareName;
-
         fare.price = price;
-
         fare.availableSeats = availableSeats;
-
-        fares.save(fare);
-
+        return fare;
     }
 
     private void createSeats(FlightEntity flight) {
+        seats.saveAll(buildSeats(flight));
+    }
+
+    private List<SeatEntity> buildSeats(FlightEntity flight) {
         String[] columns = {"A", "B", "C", "D", "G", "H", "K"};
-
-
+        List<SeatEntity> result = new ArrayList<>(16 * columns.length);
         for (int row = 1; row <= 16; row++) {
             for (String column : columns) {
                 SeatEntity seat = new SeatEntity();
-
                 seat.id = flight.id + "-" + row + column;
-
                 seat.flightId = flight.id;
-
                 seat.code = row + column;
-
                 seat.cabinClass = row <= 3 ? "BUSINESS" : "ECONOMY";
-
                 seat.status = "AVAILABLE";
-
                 seat.price = row <= 3 ? 50_000 : 0;
-
-                seats.save(seat);
-
+                result.add(seat);
             }
         }
+        return result;
     }
 }

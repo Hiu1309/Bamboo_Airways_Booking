@@ -1,0 +1,50 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: bamboo_booking
+      MYSQL_USER: ${MYSQL_USER:-bamboo}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root-change-me}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      MYSQL_URL: jdbc:mysql://mysql:3306/bamboo_booking?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      MYSQL_USER: ${MYSQL_USER:-bamboo}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-development-access-secret-change-in-production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-development-refresh-secret-change-in-production}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:8443}
+      BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-https://your-ngrok-id.ngrok-free.app}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    command: http backend:4000
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:?Set NGROK_AUTHTOKEN in your environment or .env file}
+    ports:
+      - "4040:4040"
+    depends_on:
+      - backend
+
+volumes:
+  mysql-data:

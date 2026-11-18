@@ -1,33 +1,37 @@
 package com.bambooairways.booking.controller;
 
-import com.bambooairways.booking.dto.*;
-import com.bambooairways.booking.entity.*;
-import com.bambooairways.booking.service.BookingService;
-
-
-
-
-
-import com.bambooairways.booking.dto.BookingRequest;
-
-import com.bambooairways.booking.dto.LoginRequest;
-
-import com.bambooairways.booking.dto.PaymentRequest;
-
-import com.bambooairways.booking.dto.RegisterRequest;
-
-import com.bambooairways.booking.dto.ReviewRequest;
-
-import jakarta.validation.Valid;
+import java.util.List;
+import java.util.Map;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.util.MultiValueMap;
 
-import org.springframework.web.bind.annotation.*;
+import com.bambooairways.booking.dto.BookingRequest;
+import com.bambooairways.booking.dto.LoginRequest;
+import com.bambooairways.booking.dto.RegisterRequest;
+import com.bambooairways.booking.dto.ReviewRequest;
+import com.bambooairways.booking.dto.payment.PaymentRequest;
+import com.bambooairways.booking.entity.AirportEntity;
+import com.bambooairways.booking.entity.BookingEntity;
+import com.bambooairways.booking.entity.FlightEntity;
+import com.bambooairways.booking.entity.LoyaltyEntryEntity;
+import com.bambooairways.booking.entity.ReviewEntity;
+import com.bambooairways.booking.entity.SeatEntity;
+import com.bambooairways.booking.service.BookingService;
+import com.bambooairways.enums.PaymentProvider;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-
-import java.util.List;
-
-import java.util.Map;
+import jakarta.validation.Valid;
 
 
 /**
@@ -135,6 +139,23 @@ public class BookingController {
 
     }
 
+    @PostMapping("/api/payments/webhook/momo")
+    public ResponseEntity<?> momoWebhook(@RequestBody String payload) throws Exception {
+        JsonNode body = new ObjectMapper().readTree(payload);
+        return bookingService.handlePaymentWebhook(PaymentProvider.MOMO, payload, body.path("signature").asText());
+    }
+
+    @RequestMapping(value="/api/payments/webhook/vnpay", method={RequestMethod.GET,RequestMethod.POST})
+    public ResponseEntity<?> vnpayWebhook(@RequestParam MultiValueMap<String,String> params) {
+        String payload = params.entrySet().stream().map(e -> e.getKey()+"="+java.net.URLEncoder.encode(e.getValue().get(0),java.nio.charset.StandardCharsets.UTF_8)).collect(java.util.stream.Collectors.joining("&"));
+        return bookingService.handlePaymentWebhook(PaymentProvider.VNPAY, payload, null);
+    }
+
+    @PostMapping("/api/payments/webhook/stripe")
+    public ResponseEntity<?> stripeWebhook(@RequestBody String payload, @RequestHeader(value="Stripe-Signature", required=false) String signature) {
+        return bookingService.handlePaymentWebhook(PaymentProvider.STRIPE, payload, signature);
+    }
+
     @GetMapping("/api/reviews")
     public List<ReviewEntity> reviews() {
         return bookingService.getReviews();
@@ -153,6 +174,13 @@ public class BookingController {
     public List<LoyaltyEntryEntity> loyalty(
             @RequestHeader("Authorization") String authorization) {
         return bookingService.getLoyalty(authorization);
+
+    }
+
+    @GetMapping("/api/loyalty/balance")
+    public Map<String, Integer> loyaltyBalance(
+            @RequestHeader("Authorization") String authorization) {
+        return Map.of("points", bookingService.getLoyaltyBalance(authorization));
 
     }
 
