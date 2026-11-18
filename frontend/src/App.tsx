@@ -11,6 +11,7 @@ type Page =
   | 'seats'
   | 'payment'
   | 'success'
+  | 'checkoutResult'
   | 'history'
   | 'reviews'
 
@@ -29,6 +30,8 @@ type ApiFlight = {
   durationMinutes: number
 }
 type SessionUser = { id: string; username: string; email: string; fullName: string; role: string; memberNumber?: string | null }
+type PaymentResponse = { transactionCode: string; provider: string; actionType: string; payUrl?: string | null }
+type PendingBooking = { bookingCode: string; flight: SelectedFlight; passenger: PassengerData; seatCode: string }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 const currentYear = new Date().getFullYear()
@@ -57,7 +60,12 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers,
   })
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.message || 'Không thể kết nối máy chủ.')
+  if (!response.ok) {
+    const fallback = response.status === 401 || (response.status === 400 && !token)
+      ? 'Vui lòng đăng nhập trước khi thực hiện thao tác này.'
+      : `Yêu cầu thất bại (HTTP ${response.status}).`
+    throw new Error(data.message || data.error || fallback)
+  }
   return data as T
 }
 
@@ -487,42 +495,76 @@ function Legend({ onClose }: { onClose: () => void }) {
 }
 
 const paymentMethods = [
-  ['card', 'Thẻ ghi nợ / Thẻ tín dụng', 'VISA · Mastercard · JCB'],
-  ['card', 'Thanh toán bằng mã VietQR', 'Quét mã bằng ứng dụng ngân hàng'],
-  ['card', 'Thanh toán bằng mã VNPAY-QR', 'Thanh toán nhanh chóng và bảo mật'],
-  ['card', 'Ví điện tử Momo', 'Thanh toán qua ví MoMo'],
-  ['card', 'Thẻ ATM / Thẻ nội địa', 'Áp dụng với ngân hàng tại Việt Nam'],
-  ['clock', 'Trả sau', 'Đặt chỗ ngay, thanh toán sau dễ dàng'],
-]
+  { id: 'VNPAY', icon: 'card', title: 'VNPay', note: 'Thanh toán qua cổng VNPay' },
+  { id: 'MOMO', icon: 'card', title: 'Ví điện tử MoMo', note: 'Thanh toán qua ví MoMo' },
+  { id: 'ZALOPAY', icon: 'card', title: 'Ví điện tử ZaloPay', note: 'Thanh toán qua ví ZaloPay' },
+  { id: 'STRIPE', icon: 'card', title: 'Thẻ ghi nợ / Thẻ tín dụng', note: 'Thanh toán bằng Stripe' },
+] as const
 
 function Payment({ go, flight, passenger, seatCode, onBooked }: { go: (p: Page) => void; flight: SelectedFlight | null; passenger: PassengerData | null; seatCode: string; onBooked: (code: string) => void }) {
-  const [open, setOpen] = useState(2)
+  const [open, setOpen] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [availablePoints, setAvailablePoints] = useState(0)
+  const [usePoints, setUsePoints] = useState(false)
+  const [pointsToRedeem, setPointsToRedeem] = useState(0)
+  const price = flight ? flight.selectedFare.price : 0
+  const tax = Math.round(price * 0.306)
+  const payableBase = price + tax
+  const maxRedeemablePoints = Math.max(0, Math.min(availablePoints, Math.floor(payableBase / 1000)))
+  const discount = usePoints ? pointsToRedeem * 1000 : 0
+  const finalAmount = Math.max(0, payableBase - discount)
+
+  useEffect(() => {
+    if (!localStorage.getItem('bamboo.accessToken')) return
+    api<{ points: number }>('/api/loyalty/balance')
+      .then((balance) => setAvailablePoints(Math.max(0, Math.floor(Number(balance.points) || 0))))
+      .catch(() => setAvailablePoints(0))
+  }, [])
+
+  useEffect(() => {
+    setPointsToRedeem((current) => Math.min(current, maxRedeemablePoints))
+  }, [maxRedeemablePoints])
+
   const pay = async (method: string) => {
     if (!flight || !passenger) { setError('Vui lòng hoàn tất thông tin hành khách trước khi thanh toán.'); return }
     setBusy(true); setError('')
     try {
       const booking = await api<{ id: string; bookingCode: string; total: number }>('/api/bookings', { method: 'POST', body: JSON.stringify({ flightId: flight.id, cabinClass: flight.selectedFare.cabinClass, fareName: flight.selectedFare.fareName, contactEmail: passenger.contactEmail, contactPhone: passenger.contactPhone, passenger: { title: passenger.title, firstName: passenger.firstName, lastName: passenger.lastName, identityNumber: passenger.identityNumber, dateOfBirth: passenger.dateOfBirth, memberNumber: passenger.memberNumber }, seatCode }) })
-      await api(`/api/bookings/${booking.bookingCode}/payments`, { method: 'POST', body: JSON.stringify({ method }) })
+      const payment = await api<PaymentResponse>(`/api/bookings/${booking.bookingCode}/payments`, { method: 'POST', body: JSON.stringify({ method, pointsToRedeem: usePoints ? pointsToRedeem : 0 }) })
       onBooked(booking.bookingCode)
+      sessionStorage.setItem('bamboo.pendingBooking', JSON.stringify({ bookingCode: booking.bookingCode, flight, passenger, seatCode } satisfies PendingBooking))
+      if (payment.payUrl) {
+        window.location.assign(payment.payUrl)
+        return
+      }
       go('success')
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : 'Không thể hoàn tất thanh toán.') } finally { setBusy(false) }
   }
-  const price = flight ? flight.selectedFare.price : 0
-  const tax = Math.round(price * 0.306)
-  return <><BookingBar go={go} total={`${money(price + tax)} VND`} /><Banner title="Thanh toán" subtitle="Hoàn tất đặt chỗ của Quý khách" /><main className="booking-main payment-page"><details className="price-details" open><summary><span>Tổng giá</span><b>{money(price + tax)} VND</b></summary><div><span>Giá vé</span><b>{money(price)} VND</b><span>Thuế và phí</span><b>{money(tax)} VND</b></div></details>{error && <p className="error-text">{error}</p>}<section className="payment-card"><h2>Chọn phương thức thanh toán của Quý khách</h2>{paymentMethods.map(([icon, title, note], i) => <div className={`pay-method ${open === i ? 'open' : ''}`} key={title}><button onClick={() => setOpen(open === i ? -1 : i)}><Icon name={icon} /><span><b>{title}</b><small>{note}</small></span><em>⌄</em></button>{open === i && <div className="pay-content"><p>Phương thức thanh toán này đang sẵn sàng cho đặt chỗ của Quý khách.</p><Button disabled={busy} onClick={() => pay(['CARD', 'VIETQR', 'VNPAY', 'MOMO', 'ATM', 'PAY_LATER'][i])}>{busy ? 'Đang xử lý...' : `Thanh toán ${money(price + tax)} VND`}</Button></div>}</div>)}</section><Button className="outline" onClick={() => go('seats')}>Quay lại</Button></main></>
+  return <><BookingBar go={go} total={`${money(finalAmount)} VND`} /><Banner title="Thanh toán" subtitle="Hoàn tất đặt chỗ của Quý khách" /><main className="booking-main payment-page"><details className="price-details" open><summary><span>Tổng giá</span><b>{money(payableBase)} VND</b></summary><div><span>Giá vé</span><b>{money(price)} VND</b><span>Thuế và phí</span><b>{money(tax)} VND</b>{usePoints && discount > 0 && <><span>Giảm từ điểm thưởng</span><b>-{money(discount)} VND</b><span>Số tiền thanh toán</span><b>{money(finalAmount)} VND</b></>}</div></details>{localStorage.getItem('bamboo.accessToken') && <section className="payment-card"><h2>Điểm thưởng Bamboo Club</h2><p><b>{money(availablePoints)} điểm</b> khả dụng <span>· 1 điểm = 1.000 VND</span></p><label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0' }}><input type="checkbox" checked={usePoints} onChange={(event) => { setUsePoints(event.target.checked); if (event.target.checked && pointsToRedeem === 0) setPointsToRedeem(Math.min(maxRedeemablePoints, availablePoints)) }} />Sử dụng điểm thưởng</label>{usePoints && <label className="field"><span>Số điểm sử dụng (tối đa {money(maxRedeemablePoints)} điểm)</span><span className="input-wrap"><input type="number" min={0} max={maxRedeemablePoints} step={1} value={pointsToRedeem} onChange={(event) => setPointsToRedeem(Math.max(0, Math.min(maxRedeemablePoints, Math.floor(Number(event.target.value) || 0))))} /></span></label>}<p>Giảm: <b>{money(discount)} VND</b></p><p>Số tiền phải thanh toán: <b>{money(finalAmount)} VND</b></p></section>}{error && <p className="error-text">{error}</p>}<section className="payment-card"><h2>Chọn phương thức thanh toán của Quý khách</h2>{paymentMethods.map((paymentMethod, i) => <div className={`pay-method ${open === i ? 'open' : ''}`} key={paymentMethod.id}><button onClick={() => setOpen(open === i ? -1 : i)}><Icon name={paymentMethod.icon} /><span><b>{paymentMethod.title}</b><small>{paymentMethod.note}</small></span><em>⌄</em></button>{open === i && <div className="pay-content"><p>Phương thức thanh toán này đang sẵn sàng cho đặt chỗ của Quý khách.</p><Button disabled={busy} onClick={() => pay(paymentMethod.id)}>{busy ? 'Đang xử lý...' : `Thanh toán ${money(finalAmount)} VND`}</Button></div>}</div>)}</section><Button className="outline" onClick={() => go('seats')}>Quay lại</Button></main></>
 }
 
 function Success({ go, bookingCode, flight, passenger, seatCode }: { go: (p: Page) => void; bookingCode: string; flight: SelectedFlight | null; passenger: PassengerData | null; seatCode: string }) {
   return <main className="success-page"><div className="success-icon"><Icon name="check" size={44} /></div><span>THANH TOÁN THÀNH CÔNG</span><h1>Chuyến bay của Quý khách<br />đã được xác nhận</h1><p>Mã đặt chỗ</p><strong>{bookingCode || 'Đang cập nhật'}</strong><div className="ticket"><div><small>HÀNH TRÌNH</small><b>{flight?.departureAirport.code || 'HAN'} <Icon name="plane" /> {flight?.arrivalAirport.code || 'SGN'}</b><span>{flight ? `${new Date(flight.departureAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} · ${formatDate(flight.departureAt.slice(0, 10))}` : ''}</span></div><div><small>HÀNH KHÁCH</small><b>{passenger ? `${passenger.lastName} ${passenger.firstName}` : 'Hành khách'}</b><span>Ghế {seatCode} · {flight?.selectedFare.fareName || ''}</span></div></div><p>Vé điện tử đã được gửi tới email của Quý khách.</p><Button onClick={() => go('home')}>Về trang chủ</Button></main>
 }
 
+function PaymentFailed({ go, message }: { go: (p: Page) => void; message: string }) {
+  return <main className="success-page"><div className="success-icon"><Icon name="close" size={44} /></div><span>THANH TOÁN KHÔNG THÀNH CÔNG</span><h1>Không thể xác nhận thanh toán</h1><p className="error-text">{message}</p><div><Button onClick={() => go('payment')}>Thử lại</Button><Button className="outline" onClick={() => go('home')}>Về trang chủ</Button></div></main>
+}
+
 function History() {
   const [entries, setEntries] = useState<Array<{ id: string; transactionNo: string; createdAt: string; description: string; type: string; points: number }>>([])
+  const [availablePoints, setAvailablePoints] = useState(0)
   const [error, setError] = useState('')
-  useEffect(() => { api<typeof entries>('/api/loyalty/transactions').then(setEntries).catch((requestError) => setError(requestError instanceof Error ? requestError.message : 'Không thể tải lịch sử.')) }, [])
-  return <main className="history-page"><div className="history-head"><span>TÀI KHOẢN BAMBOO CLUB</span><h1>Hoạt động gần đây</h1><p>Theo dõi điểm thưởng và lịch sử chuyến bay của Quý khách.</p></div><section className="history-card"><div className="history-tabs"><button className="active">Lịch Sử Điểm Thưởng</button><button>Lịch Sử Điểm Xét Hạng</button><button>Lịch Sử Chặng Bay Xét Hạng</button></div><div className="filters"><Field label="Từ" type="date" /><Field label="Đến" type="date" /><p>Chỉ hiển thị dữ liệu trong 13 tháng.</p><button className="reset">Đặt lại bộ lọc</button><Button>Bộ lọc</Button></div><div className="result-bar"><span>Hiển thị {entries.length} mục.</span><button>Xuất dữ liệu</button></div>{error && <p className="error-text">{error}</p>}<div className="table-wrap"><table><thead><tr>{['#', 'Số giao dịch', 'Ngày', 'Mô tả', 'Loại', 'Điểm thưởng'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{entries.length ? entries.map((entry, index) => <tr key={entry.id}><td>{index + 1}</td><td>{entry.transactionNo}</td><td>{new Date(entry.createdAt).toLocaleDateString('vi-VN')}</td><td>{entry.description}</td><td>{entry.type}</td><td>{entry.points > 0 ? '+' : ''}{entry.points}</td></tr>) : <tr><td colSpan={6}>Chưa có dữ liệu điểm thưởng.</td></tr>}</tbody></table></div></section></main>
+  useEffect(() => {
+    api<typeof entries>('/api/loyalty/transactions').then(setEntries).catch((requestError) => setError(requestError instanceof Error ? requestError.message : 'Không thể tải lịch sử.'))
+    if (localStorage.getItem('bamboo.accessToken')) {
+      api<{ points: number }>('/api/loyalty/balance')
+        .then((balance) => setAvailablePoints(Math.max(0, Math.floor(Number(balance.points) || 0))))
+        .catch(() => setAvailablePoints(0))
+    }
+  }, [])
+  return <main className="history-page"><div className="history-head"><span>TÀI KHOẢN BAMBOO CLUB</span><h1>Hoạt động gần đây</h1><p>Theo dõi điểm thưởng và lịch sử chuyến bay của Quý khách.</p></div><section className="history-card"><div className="history-tabs"><button className="active">Lịch Sử Điểm Thưởng</button><button>Lịch Sử Điểm Xét Hạng</button><button>Lịch Sử Chặng Bay Xét Hạng</button></div>{localStorage.getItem('bamboo.accessToken') && <div className="result-bar"><strong>Tổng điểm hiện có: {money(availablePoints)} điểm</strong></div>}<div className="filters"><Field label="Từ" type="date" /><Field label="Đến" type="date" /><p>Chỉ hiển thị dữ liệu trong 13 tháng.</p><button className="reset">Đặt lại bộ lọc</button><Button>Bộ lọc</Button></div><div className="result-bar"><span>Hiển thị {entries.length} mục.</span><button>Xuất dữ liệu</button></div>{error && <p className="error-text">{error}</p>}<div className="table-wrap"><table><thead><tr>{['#', 'Số giao dịch', 'Ngày', 'Mô tả', 'Loại', 'Điểm thưởng'].map((x) => <th key={x}>{x}</th>)}</tr></thead><tbody>{entries.length ? entries.map((entry, index) => <tr key={entry.id}><td>{index + 1}</td><td>{entry.transactionNo}</td><td>{new Date(entry.createdAt).toLocaleDateString('vi-VN')}</td><td>{entry.description}</td><td>{entry.type}</td><td>{entry.points > 0 ? '+' : ''}{entry.points}</td></tr>) : <tr><td colSpan={6}>Chưa có dữ liệu điểm thưởng.</td></tr>}</tbody></table></div></section></main>
 }
 
 const initialReviews = [
@@ -550,7 +592,7 @@ function Reviews({ loggedIn, go }: { loggedIn: boolean; go: (p: Page) => void })
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>('home')
+  const [page, setPage] = useState<Page>(() => window.location.pathname === '/checkout/result' ? 'checkoutResult' : 'home')
   const [loggedIn, setLoggedIn] = useState(false)
   const [user, setUser] = useState<SessionUser | null>(null)
   const [search, setSearch] = useState<SearchParams>({ from: 'HAN', to: 'SGN', date: todayInput(), passengers: 1 })
@@ -558,8 +600,58 @@ export default function App() {
   const [passenger, setPassenger] = useState<PassengerData | null>(null)
   const [seatCode, setSeatCode] = useState('')
   const [bookingCode, setBookingCode] = useState('')
+  const [paymentResult, setPaymentResult] = useState<{ status: 'loading' | 'success' | 'failed'; message: string }>({ status: 'loading', message: '' })
   useEffect(() => {
     setLoggedIn(Boolean(localStorage.getItem('bamboo.accessToken')))
+  }, [])
+  useEffect(() => {
+    if (window.location.pathname !== '/checkout/result') return
+    const pendingRaw = sessionStorage.getItem('bamboo.pendingBooking')
+    let pending: PendingBooking | null = null
+    if (pendingRaw) {
+      try {
+        pending = JSON.parse(pendingRaw) as PendingBooking
+        setBookingCode(pending.bookingCode)
+        setSelectedFlight(pending.flight)
+        setPassenger(pending.passenger)
+        setSeatCode(pending.seatCode)
+      } catch {
+        setPaymentResult({ status: 'failed', message: 'Không thể khôi phục thông tin đặt chỗ.' })
+        return
+      }
+    }
+
+    const params = new URLSearchParams(window.location.search)
+    const vnpResponseCode = params.get('vnp_ResponseCode')
+    const vnpTxnRef = params.get('vnp_TxnRef')
+    const momoResultCode = params.get('resultCode')
+    const momoOrderId = params.get('orderId')
+    const stripeSessionId = params.get('session_id')
+    const stripeCancelled = params.get('cancelled')
+    const finish = (success: boolean, message: string) => {
+      if (success) sessionStorage.removeItem('bamboo.pendingBooking')
+      setPaymentResult({ status: success ? 'success' : 'failed', message })
+    }
+    if (!pending) {
+      finish(false, 'Không tìm thấy thông tin đặt chỗ để xác nhận thanh toán.')
+      return
+    }
+
+    if (vnpResponseCode !== null || vnpTxnRef !== null) {
+      api<{ accepted: boolean }>(`/api/payments/webhook/vnpay?${params.toString()}`)
+        .then((response) => finish(response.accepted && vnpResponseCode === '00', response.accepted ? 'VNPay từ chối giao dịch.' : 'Không thể xác nhận giao dịch VNPay.'))
+        .catch((requestError) => finish(false, requestError instanceof Error ? requestError.message : 'Không thể xác nhận giao dịch VNPay.'))
+      return
+    }
+    if (momoResultCode !== null || momoOrderId !== null) {
+      finish(momoResultCode === '0', momoResultCode === '0' ? '' : 'MoMo từ chối giao dịch.')
+      return
+    }
+    if (stripeSessionId !== null || stripeCancelled !== null) {
+      finish(Boolean(stripeSessionId) && stripeCancelled !== 'true', stripeSessionId ? 'Thanh toán Stripe chưa được xác nhận.' : 'Thanh toán Stripe đã bị hủy.')
+      return
+    }
+    finish(false, 'Không tìm thấy thông tin kết quả thanh toán.')
   }, [])
   const go = (next: Page) => { setPage(next); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   const login = (nextUser: SessionUser) => { setUser(nextUser); setLoggedIn(true); go('home') }
@@ -567,7 +659,7 @@ export default function App() {
   const bookingPages = useMemo(() => ['flights', 'fare', 'journey', 'passengers', 'seats', 'payment'].includes(page), [page])
   return (
     <div className="app">
-      {!bookingPages && !['login', 'register', 'success'].includes(page) && <Header go={go} loggedIn={loggedIn} user={user} onLogout={logout} />}
+      {!bookingPages && !['login', 'register', 'success', 'checkoutResult'].includes(page) && <Header go={go} loggedIn={loggedIn} user={user} onLogout={logout} />}
       {page === 'home' && <Home go={go} onSearch={setSearch} />}
       {page === 'login' && <AuthPage type="login" go={go} onLogin={login} />}
       {page === 'register' && <AuthPage type="register" go={go} onLogin={login} />}
@@ -578,6 +670,9 @@ export default function App() {
       {page === 'seats' && <Seats go={go} flight={selectedFlight} onSelectSeat={setSeatCode} />}
       {page === 'payment' && <Payment go={go} flight={selectedFlight} passenger={passenger} seatCode={seatCode} onBooked={setBookingCode} />}
       {page === 'success' && <Success go={go} bookingCode={bookingCode} flight={selectedFlight} passenger={passenger} seatCode={seatCode} />}
+      {page === 'checkoutResult' && paymentResult.status === 'loading' && <main className="success-page"><h1>Đang xác nhận thanh toán...</h1></main>}
+      {page === 'checkoutResult' && paymentResult.status === 'success' && <Success go={go} bookingCode={bookingCode} flight={selectedFlight} passenger={passenger} seatCode={seatCode} />}
+      {page === 'checkoutResult' && paymentResult.status === 'failed' && <PaymentFailed go={go} message={paymentResult.message} />}
       {page === 'history' && (loggedIn ? <History /> : <AuthPage type="login" go={go} onLogin={login} />)}
       {page === 'reviews' && <Reviews loggedIn={loggedIn} go={go} />}
     </div>
