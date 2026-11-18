@@ -1,73 +1,73 @@
 package com.bambooairways.booking.service;
 
-import com.bambooairways.booking.dto.*;
-import com.bambooairways.booking.entity.*;
-import com.bambooairways.booking.repository.*;
-
-
-
-
-
-import com.bambooairways.booking.dto.BookingRequest;
-
-import com.bambooairways.booking.dto.LoginRequest;
-
-import com.bambooairways.booking.dto.PaymentRequest;
-
-import com.bambooairways.booking.dto.RegisterRequest;
-
-import com.bambooairways.booking.dto.ReviewRequest;
-
-import io.jsonwebtoken.Claims;
-
-import io.jsonwebtoken.Jwts;
-
-import io.jsonwebtoken.security.Keys;
-
-import org.springframework.beans.factory.annotation.Value;
-
-import org.springframework.http.HttpStatus;
-
-import org.springframework.http.ResponseEntity;
-
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-
-import org.springframework.stereotype.Service;
-
-import org.springframework.transaction.annotation.Transactional;
-
-import org.springframework.web.server.ResponseStatusException;
-
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.EnumMap;
 
 import javax.crypto.SecretKey;
 
-import java.nio.charset.StandardCharsets;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.security.MessageDigest;
+import com.bambooairways.booking.dto.BookingRequest;
+import com.bambooairways.booking.dto.LoginRequest;
+import com.bambooairways.booking.dto.RegisterRequest;
+import com.bambooairways.booking.dto.ReviewRequest;
+import com.bambooairways.booking.dto.payment.PaymentRequest;
+import com.bambooairways.booking.dto.WebhookResult;
+import com.bambooairways.enums.PaymentProvider;
+import com.bambooairways.interfaces.PaymentStategy;
+import com.bambooairways.booking.entity.AircraftEntity;
+import com.bambooairways.booking.entity.AirportEntity;
+import com.bambooairways.booking.entity.BookingEntity;
+import com.bambooairways.booking.entity.BookingStatus;
+import com.bambooairways.booking.entity.FareEntity;
+import com.bambooairways.booking.entity.FlightEntity;
+import com.bambooairways.booking.entity.FlightStatus;
+import com.bambooairways.booking.entity.LoyaltyEntryEntity;
+import com.bambooairways.booking.entity.PassengerEntity;
+import com.bambooairways.booking.entity.PasswordResetTokenEntity;
+import com.bambooairways.booking.entity.PaymentEntity;
+import com.bambooairways.booking.entity.PaymentStatus;
+import com.bambooairways.booking.entity.RefreshTokenEntity;
+import com.bambooairways.booking.entity.ReviewEntity;
+import com.bambooairways.booking.entity.SeatEntity;
+import com.bambooairways.booking.entity.UserEntity;
+import com.bambooairways.booking.entity.UserRole;
+import com.bambooairways.booking.repository.AircraftRepository;
+import com.bambooairways.booking.repository.AirportRepository;
+import com.bambooairways.booking.repository.BookingRepository;
+import com.bambooairways.booking.repository.FareRepository;
+import com.bambooairways.booking.repository.FlightRepository;
+import com.bambooairways.booking.repository.LoyaltyEntryRepository;
+import com.bambooairways.booking.repository.PassengerRepository;
+import com.bambooairways.booking.repository.PasswordResetTokenRepository;
+import com.bambooairways.booking.repository.PaymentRepository;
+import com.bambooairways.booking.repository.RefreshTokenRepository;
+import com.bambooairways.booking.repository.ReviewRepository;
+import com.bambooairways.booking.repository.SeatRepository;
+import com.bambooairways.booking.repository.UserRepository;
 
-import java.time.Duration;
-
-import java.time.Instant;
-
-import java.time.LocalDate;
-
-import java.time.ZoneOffset;
-
-import java.time.temporal.ChronoUnit;
-
-import java.util.Arrays;
-
-import java.util.Date;
-
-import java.util.HexFormat;
-
-import java.util.LinkedHashMap;
-
-import java.util.List;
-
-import java.util.Map;
-
-import java.util.UUID;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 
 
 /**
@@ -108,6 +108,7 @@ public class BookingService {
     private final ReviewRepository reviews;
 
     private final LoyaltyEntryRepository loyalty;
+    private final Map<PaymentProvider, PaymentStategy> paymentStrategies;
 
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
@@ -125,7 +126,7 @@ public class BookingService {
             PassengerRepository passengers,
             PaymentRepository payments,
             ReviewRepository reviews,
-            LoyaltyEntryRepository loyalty) {
+            LoyaltyEntryRepository loyalty, List<PaymentStategy> strategies) {
         this.users = users;
 
         this.refreshTokens = refreshTokens;
@@ -151,6 +152,8 @@ public class BookingService {
         this.reviews = reviews;
 
         this.loyalty = loyalty;
+        this.paymentStrategies = new EnumMap<>(PaymentProvider.class);
+        strategies.forEach(strategy -> this.paymentStrategies.put(strategy.getPaymentProvider(), strategy));
 
     }
 
@@ -442,6 +445,15 @@ public class BookingService {
                         HttpStatus.NOT_FOUND, "Đặt chỗ không hợp lệ."));
 
 
+        if (request.pointsToRedeem() != null && request.pointsToRedeem() < 0) {
+            throw error(HttpStatus.BAD_REQUEST, "Số điểm sử dụng không hợp lệ.");
+        }
+
+        PaymentProvider provider;
+        try { provider = PaymentProvider.valueOf(request.method().trim().toUpperCase()); }
+        catch (Exception e) { throw error(HttpStatus.BAD_REQUEST, "Phương thức thanh toán không hợp lệ."); }
+        PaymentStategy strategy = paymentStrategies.get(provider);
+        if (strategy == null) throw error(HttpStatus.BAD_REQUEST, "Cổng thanh toán không được hỗ trợ.");
         PaymentEntity payment = new PaymentEntity();
 
         payment.id = UUID.randomUUID().toString();
@@ -450,33 +462,85 @@ public class BookingService {
 
         payment.method = request.method();
 
-        payment.amount = booking.total;
+        int balance = loyalty.findByUserIdOrderByCreatedAtDesc(user.id).stream()
+                .mapToInt(entry -> entry.points).sum();
+        int requestedPoints = request.pointsToRedeem() == null ? 0 : request.pointsToRedeem();
+        int usedPoints = Math.min(requestedPoints, Math.min(balance, booking.total / 1000));
 
-        payment.status = PaymentStatus.PAID;
+        payment.amount = booking.total - (usedPoints * 1000);
 
-        payment.providerRef = "DEMO-" + System.currentTimeMillis();
-
-        payment.paidAt = Instant.now();
+        payment.status = PaymentStatus.PENDING;
 
         payment.createdAt = Instant.now();
 
+        if (usedPoints > 0) {
+            LoyaltyEntryEntity entry = new LoyaltyEntryEntity();
+            entry.id = UUID.randomUUID().toString();
+            entry.userId = user.id;
+            entry.type = "REDEEM";
+            entry.points = -usedPoints;
+            entry.transactionNo = "RED-" + UUID.randomUUID();
+            entry.description = "Doi diem thanh toan " + booking.bookingCode;
+            entry.createdAt = Instant.now();
+            loyalty.save(entry);
+        }
+
         payments.save(payment);
 
+        if (payment.amount == 0) {
+            payment.status = PaymentStatus.PAID;
+            payment.paidAt = Instant.now();
+            payment.providerRef = "POINTS-" + System.currentTimeMillis();
+            booking.status = BookingStatus.CONFIRMED;
+            payments.save(payment);
+            bookings.save(booking);
+            return ResponseEntity.status(HttpStatus.CREATED).body(
+                    new com.bambooairways.booking.dto.payment.PaymentResponse(
+                            payment.id, provider, "COMPLETED", null, null, null));
+        }
 
-        booking.status = BookingStatus.CONFIRMED;
-
-        bookings.save(booking);
-
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
-                "payment", payment,
-                "bookingCode", booking.bookingCode));
+        String url = strategy.createPaymentUrl(payment.id, payment.amount, "Bamboo Airways booking " + booking.bookingCode);
+        payments.save(payment);
+        return ResponseEntity.status(HttpStatus.CREATED).body(com.bambooairways.booking.dto.payment.PaymentResponse.redirect(payment.id, provider, url));
 
     }
 
     public List<ReviewEntity> getReviews() {
         return reviews.findByApprovedTrueOrderByCreatedAtDesc();
 
+    }
+
+    @Transactional
+    public ResponseEntity<?> handlePaymentWebhook(PaymentProvider provider, String payload, String signature) {
+        WebhookResult result = paymentStrategies.get(provider).handleWebhook(payload, signature);
+        if (!result.isValidSignature() || result.orderCode() == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("accepted", false));
+        PaymentEntity payment = payments.findById(result.orderCode()).orElse(null);
+        if (payment == null) return ResponseEntity.badRequest().body(Map.of("accepted", false));
+        if (result.amount() > 0 && result.amount() != payment.amount) return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("accepted", false));
+        BookingEntity booking = bookings.findById(payment.bookingId).orElse(null);
+        if (booking == null) return ResponseEntity.badRequest().body(Map.of("accepted", false));
+        if (result.isSuccess()) {
+            boolean newlyPaid = payment.status != PaymentStatus.PAID;
+            payment.status = PaymentStatus.PAID;
+            payment.paidAt = Instant.now();
+            payment.providerRef = result.providerTransId();
+            booking.status = BookingStatus.CONFIRMED;
+            if (newlyPaid) {
+                int earnedPoints = Math.max(1, payment.amount / 10000);
+                LoyaltyEntryEntity entry = new LoyaltyEntryEntity();
+                entry.id = UUID.randomUUID().toString();
+                entry.userId = booking.userId;
+                entry.type = "EARN";
+                entry.points = earnedPoints;
+                entry.transactionNo = "EARN-" + UUID.randomUUID();
+                entry.description = "Tich diem thanh toan " + booking.bookingCode;
+                entry.createdAt = Instant.now();
+                loyalty.save(entry);
+            }
+        }
+        else payment.status = PaymentStatus.FAILED;
+        payments.save(payment); bookings.save(booking);
+        return ResponseEntity.ok(Map.of("accepted", true));
     }
 
     public ResponseEntity<?> addReview(
@@ -508,6 +572,12 @@ public class BookingService {
 
         return loyalty.findByUserIdOrderByCreatedAtDesc(user.id);
 
+    }
+
+    public int getLoyaltyBalance(String authorization) {
+        UserEntity user = getLoggedInUser(authorization);
+        return loyalty.findByUserIdOrderByCreatedAtDesc(user.id).stream()
+                .mapToInt(entry -> entry.points).sum();
     }
 
     public List<BookingEntity> getAdminBookings(String authorization) {
